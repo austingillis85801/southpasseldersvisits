@@ -103,26 +103,53 @@
     </section>
   </main>
 
-  <!-- Firebase & PapaParse -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
+  <!-- PapaParse -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
+  <!-- FIX #1: load Firebase as a module and expose the modular APIs on window.firebase -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import {
+      getAuth, onAuthStateChanged,
+      signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
+    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+    import {
+      getFirestore, enableIndexedDbPersistence,
+      collection, doc, addDoc, updateDoc, onSnapshot,
+      serverTimestamp, increment
+    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+    // Make the modular SDK available to non-module code below:
+    window.firebase = {
+      initializeApp,
+      // auth
+      getAuth, onAuthStateChanged,
+      signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+      // firestore
+      getFirestore, enableIndexedDbPersistence,
+      collection, doc, addDoc, updateDoc, onSnapshot, serverTimestamp, increment
+    };
+  </script>
+
+  <!-- App code -->
   <script>
     // ---- Your Firebase config ----
     const FIREBASE_CONFIG = {
-  "apiKey": "AZzaSyCWhXRTryqXRoiRNB5FrWiB-RzmYJ-TQXM",
-  "authDomain": "southpass-elders-visit-tracker.firebaseapp.com",
-  "projectId": "southpass-elders-visit-tracker",
-  "storageBucket": "southpass-elders-visit-tracker.firebasestorage.app",
-  "messagingSenderId": "736973707480",
-  "appId": "1:736973707480:web:0bb5ead0d5b43d55bb9fad",
-  "measurementId": "G-JQKNSH8CTB"
-};
+      "apiKey": "AZzaSyCWhXRTryqXRoiRNB5FrWiB-RzmYJ-TQXM",
+      "authDomain": "southpass-elders-visit-tracker.firebaseapp.com",
+      "projectId": "southpass-elders-visit-tracker",
+      "storageBucket": "southpass-elders-visit-tracker.firebasestorage.app",
+      "messagingSenderId": "736973707480",
+      "appId": "1:736973707480:web:0bb5ead0d5b43d55bb9fad",
+      "measurementId": "G-JQKNSH8CTB"
+    };
 
     // ---- PWA ----
-    if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js?v=1'); }); }
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js?v=1');
+      });
+    }
 
     // ---- Firebase init ----
     let app, auth, db, unsubElders, unsubVisits, currentUser = null;
@@ -162,11 +189,37 @@
     }
     function unsubscribeData(){ if (unsubElders) unsubElders(); if (unsubVisits) unsubVisits(); }
 
-    // ---- Auth ----
-    async function signIn(){ const email = emailEl().value.trim(); const password = passEl().value.trim(); await firebase.signInWithEmailAndPassword(auth, email, password); }
-    async function create(){ const email = emailEl().value.trim(); const password = passEl().value.trim(); await firebase.createUserWithEmailAndPassword(auth, email, password); }
-    async function signOut(){ await firebase.signOut(auth); }
+    // ---- Auth (with try/catch so you see errors) ----
+    async function signIn(){
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
+      try {
+        await firebase.signInWithEmailAndPassword(auth, email, password);
+      } catch (err) {
+        console.error('signIn error:', err);
+        alert('Sign-in failed: ' + (err.message || err.code || err));
+      }
+    }
+    async function create(){
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
+      try {
+        await firebase.createUserWithEmailAndPassword(auth, email, password);
+      } catch (err) {
+        console.error('create error:', err);
+        alert('Create account failed: ' + (err.message || err.code || err));
+      }
+    }
+    async function signOut(){
+      try {
+        await firebase.signOut(auth);
+      } catch (err) {
+        console.error('signOut error:', err);
+        alert('Sign-out failed: ' + (err.message || err.code || err));
+      }
+    }
 
+    // ---- Helpers & UI ----
     const q = (id)=>document.getElementById(id);
     const emailEl = ()=>q('email'); const passEl = ()=>q('password');
 
@@ -203,7 +256,7 @@
         const ds = e.lastVisited ? daysSince(e.lastVisited) : null;
         const status = ds === null ? 'warn' : (ds >= 30 ? 'bad' : (ds >= 14 ? 'warn' : 'ok'));
         const diff = ds === null ? 'Never' : (ds + 'd');
-        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(\`Hi ${e.preferredName||e.lastName||'there'}, this is the Elders Quorum Presidency. Could we stop by Wednesday evening for a short visit?\`)}`;
+        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, this is the Elders Quorum Presidency. Could we stop by Wednesday evening for a short visit?`)}`;
         return `
           <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center">
@@ -232,7 +285,7 @@
       );
       arr.sort((a,b)=> (a.lastName||'').localeCompare(b.lastName||''));
       tb.innerHTML = arr.map(e => {
-        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(\`Hi ${e.preferredName||e.lastName||'there'}, could we stop by Wednesday evening?\`)}`;
+        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, could we stop by Wednesday evening?`)}`;
         return `<tr>
           <td>${(e.preferredName||'') + ' ' + (e.lastName||'')}</td>
           <td>${e.phone||''}</td>
@@ -356,11 +409,11 @@
       const existing = Array.from(elders.values());
       function matchExisting(row){
         const phone = cleanPhone(row.Phone||row.phone||'');
-        const email = (row.Email||row.email||'').toLowerCase();
+        theEmail = (row.Email||row.email||'').toLowerCase();
         const name = ((row.PreferredName||row.FirstName||'')+'|'+(row.LastName||'')).toLowerCase();
         return existing.find(e =>
           (cleanPhone(e.phone||'') && cleanPhone(e.phone||'') === phone) ||
-          ((e.email||'').toLowerCase() && (e.email||'').toLowerCase() === email) ||
+          ((e.email||'').toLowerCase() && (e.email||'').toLowerCase() === theEmail) ||
           (((e.preferredName||'').toLowerCase()+'|'+(e.lastName||'').toLowerCase()) === name)
         );
       }
@@ -406,6 +459,7 @@
       alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||''));
     }
 
+    // Boot
     initFirebase();
     showView('next');
   </script>
