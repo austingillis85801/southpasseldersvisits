@@ -110,33 +110,23 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
-    // ---- Config (EDIT THESE) ----
+    // ---- Your Firebase config ----
     const FIREBASE_CONFIG = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT.firebaseapp.com",
-      projectId: "YOUR_PROJECT",
-      storageBucket: "YOUR_PROJECT.appspot.com",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID"
-    };
-    const SETTINGS = {
-      W_DAYS: 0.2,
-      W_ATTEMPTS: 5,
-      BONUS_NEVER: 30,
-      PENALTY_RECENT_CONTACT: -20,
-      COOLDOWN_DAYS: 14
-    };
+  "apiKey": "AZzaSyCWhXRTryqXRoiRNB5FrWiB-RzmYJ-TQXM",
+  "authDomain": "southpass-elders-visit-tracker.firebaseapp.com",
+  "projectId": "southpass-elders-visit-tracker",
+  "storageBucket": "southpass-elders-visit-tracker.firebasestorage.app",
+  "messagingSenderId": "736973707480",
+  "appId": "1:736973707480:web:0bb5ead0d5b43d55bb9fad",
+  "measurementId": "G-JQKNSH8CTB"
+};
 
     // ---- PWA ----
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js?v=1').catch(console.error);
-      });
-    }
+    if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js?v=1'); }); }
 
     // ---- Firebase init ----
     let app, auth, db, unsubElders, unsubVisits, currentUser = null;
-    const elders = new Map(); // id -> obj
+    const elders = new Map();
     const visits = [];
 
     function initFirebase(){
@@ -144,38 +134,23 @@
       auth = firebase.getAuth();
       db = firebase.getFirestore();
 
-      firebase.enableIndexedDbPersistence(db).catch((err)=>{
-        console.warn('Persistence error:', err.code);
-      });
+      firebase.enableIndexedDbPersistence(db).catch(err => console.warn('Persistence error:', err.code));
 
       firebase.onAuthStateChanged(auth, (user) => {
         currentUser = user;
         document.getElementById('currentUser').textContent = user ? user.email : '';
         document.getElementById('logoutBtn').style.display = user ? 'inline-block' : 'none';
-        if (user) {
-          subscribeData();
-        } else {
-          unsubscribeData();
-          elders.clear();
-          visits.length = 0;
-          renderAll();
-        }
+        if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length = 0; renderAll(); }
       });
     }
 
-    function userCol(path){ // helper for namespacing
-      if (!currentUser) throw new Error('Not signed in');
-      return firebase.collection(db, 'users', currentUser.uid, path);
-    }
+    function userCol(path){ if (!currentUser) throw new Error('Not signed in'); return firebase.collection(db, 'users', currentUser.uid, path); }
 
     function subscribeData(){
       unsubElders = firebase.onSnapshot(userCol('elders'), (snap)=>{
         snap.docChanges().forEach((ch)=>{
-          if (ch.type === 'removed') {
-            elders.delete(ch.doc.id);
-          } else {
-            elders.set(ch.doc.id, { id: ch.doc.id, ...ch.doc.data() });
-          }
+          if (ch.type === 'removed') { elders.delete(ch.doc.id); }
+          else { elders.set(ch.doc.id, { id: ch.doc.id, ...ch.doc.data() }); }
         });
         renderAll();
       });
@@ -185,53 +160,30 @@
         renderAll();
       });
     }
-
-    function unsubscribeData(){
-      if (unsubElders) unsubElders();
-      if (unsubVisits) unsubVisits();
-    }
+    function unsubscribeData(){ if (unsubElders) unsubElders(); if (unsubVisits) unsubVisits(); }
 
     // ---- Auth ----
-    async function signIn(){
-      const email = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value.trim();
-      await firebase.signInWithEmailAndPassword(auth, email, password);
-    }
-    async function create(){
-      const email = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value.trim();
-      await firebase.createUserWithEmailAndPassword(auth, email, password);
-    }
+    async function signIn(){ const email = emailEl().value.trim(); const password = passEl().value.trim(); await firebase.signInWithEmailAndPassword(auth, email, password); }
+    async function create(){ const email = emailEl().value.trim(); const password = passEl().value.trim(); await firebase.createUserWithEmailAndPassword(auth, email, password); }
     async function signOut(){ await firebase.signOut(auth); }
 
-    // ---- Helpers ----
     const q = (id)=>document.getElementById(id);
-    function showView(name){
-      ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none');
-      if (name === 'log') fillLogSelect();
-    }
+    const emailEl = ()=>q('email'); const passEl = ()=>q('password');
+
+    function showView(name){ ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none'); if (name === 'log') fillLogSelect(); }
     function renderAll(){ renderNext(); renderElders(); fillLogSelect(); }
     function cleanPhone(s){ return (s||'').replace(/\D/g,''); }
-    function fmtDate(ts){
-      if (!ts) return '—';
-      const d = ts.toDate ? ts.toDate() : new Date(ts);
-      return d.toLocaleDateString();
-    }
-    function daysSince(ts){
-      if (!ts) return null;
-      const d = ts.toDate ? ts.toDate() : new Date(ts);
-      return Math.floor((Date.now() - d.getTime())/86400000);
-    }
+    function fmtDate(ts){ if (!ts) return '—'; const d = ts.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString(); }
+    function daysSince(ts){ if (!ts) return null; const d = ts.toDate ? ts.toDate() : new Date(ts); return Math.floor((Date.now() - d.getTime())/86400000); }
 
     // ---- Next Up scoring ----
-    function nextUpScore(e){
-      if (e.active === false || e.doNotText) return -999;
-      const lastVisited = e.lastVisited || null;
-      const days = lastVisited ? daysSince(lastVisited) : null;
+    const SETTINGS = { W_DAYS: 0.2, W_ATTEMPTS: 5, BONUS_NEVER: 30, PENALTY_RECENT_CONTACT: -20, COOLDOWN_DAYS: 14 };
+    function nextUpScore(e){ if (e.active === false || e.doNotText) return -999;
+      const days = e.lastVisited ? daysSince(e.lastVisited) : null;
       const daysScore = (days === null ? SETTINGS.BONUS_NEVER : days * SETTINGS.W_DAYS);
       const attemptsScore = (e.attemptsSinceLastVisit || 0) * SETTINGS.W_ATTEMPTS;
-      const lastContactedDays = e.lastContacted ? daysSince(e.lastContacted) : null;
-      const recentPenalty = (lastContactedDays !== null && lastContactedDays < SETTINGS.COOLDOWN_DAYS) ? SETTINGS.PENALTY_RECENT_CONTACT : 0;
+      const lcd = e.lastContacted ? daysSince(e.lastContacted) : null;
+      const recentPenalty = (lcd !== null && lcd < SETTINGS.COOLDOWN_DAYS) ? SETTINGS.PENALTY_RECENT_CONTACT : 0;
       return daysScore + attemptsScore + recentPenalty;
     }
 
@@ -241,33 +193,30 @@
       const arr = Array.from(elders.values());
       arr.forEach(e => e._score = nextUpScore(e));
       let filtered = arr.filter(e => e._score > -999);
-      if (term) {
-        filtered = filtered.filter(e =>
-          (e.preferredName||'').toLowerCase().includes(term) ||
-          (e.lastName||'').toLowerCase().includes(term) ||
-          (e.phone||'').includes(term)
-        );
-      }
+      if (term) filtered = filtered.filter(e =>
+        (e.preferredName||'').toLowerCase().includes(term) ||
+        (e.lastName||'').toLowerCase().includes(term) ||
+        (e.phone||'').includes(term)
+      );
       filtered.sort((a,b)=> b._score - a._score);
       grid.innerHTML = filtered.slice(0, 18).map(e => {
         const ds = e.lastVisited ? daysSince(e.lastVisited) : null;
         const status = ds === null ? 'warn' : (ds >= 30 ? 'bad' : (ds >= 14 ? 'warn' : 'ok'));
         const diff = ds === null ? 'Never' : (ds + 'd');
-        const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, this is the Elders Quorum Presidency. Could we stop by Wednesday evening for a short visit?`)}`;
+        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(\`Hi ${e.preferredName||e.lastName||'there'}, this is the Elders Quorum Presidency. Could we stop by Wednesday evening for a short visit?\`)}`;
         return `
           <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center">
-              <div><b>${(e.preferredName||'') + ' ' + (e.lastName||'')}</b></div>
+              <div><b>${(e.preferredName||'') + ' ' + (e.lastName||'')} </b></div>
               <span class="pill ${status}">${diff}</span>
             </div>
-            <div class="muted" style="margin:.25rem 0">${e.phone ? '('+cleanPhone(e.phone).slice(-10, -7)+') '+cleanPhone(e.phone).slice(-7, -4)+'-'+cleanPhone(e.phone).slice(-4) : ''}</div>
+            <div class="muted" style="margin:.25rem 0">${e.phone||''}</div>
             <div style="display:flex; gap:.5rem; margin-top:.25rem">
               <a class="btn outline" href="${smsUrl}">Text</a>
               <button class="btn" onclick="quickLogVisit('${e.id}')">Log now</button>
               <button class="btn outline" onclick="noAnswer('${e.id}')">No answer</button>
             </div>
-          </div>
-        `;
+          </div>`;
       }).join('');
     }
 
@@ -275,17 +224,15 @@
       const tb = q('eldersTbody');
       const term = q('searchElders').value.trim().toLowerCase();
       let arr = Array.from(elders.values());
-      if (term){
-        arr = arr.filter(e =>
-          (e.preferredName||'').toLowerCase().includes(term) ||
-          (e.lastName||'').toLowerCase().includes(term) ||
-          (e.address||'').toLowerCase().includes(term) ||
-          (e.phone||'').includes(term)
-        );
-      }
+      if (term) arr = arr.filter(e =>
+        (e.preferredName||'').toLowerCase().includes(term) ||
+        (e.lastName||'').toLowerCase().includes(term) ||
+        (e.address||'').toLowerCase().includes(term) ||
+        (e.phone||'').includes(term)
+      );
       arr.sort((a,b)=> (a.lastName||'').localeCompare(b.lastName||''));
       tb.innerHTML = arr.map(e => {
-        const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, could we stop by Wednesday evening?`)}`;
+        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(\`Hi ${e.preferredName||e.lastName||'there'}, could we stop by Wednesday evening?\`)}`;
         return `<tr>
           <td>${(e.preferredName||'') + ' ' + (e.lastName||'')}</td>
           <td>${e.phone||''}</td>
@@ -305,10 +252,7 @@
       const sel = q('logElderSelect');
       const arr = Array.from(elders.values()).filter(e=>e.active!==false).sort((a,b)=>(a.lastName||'').localeCompare(b.lastName||''));
       sel.innerHTML = arr.map(e=>`<option value="${e.id}">${(e.preferredName||'')+' '+(e.lastName||'')}</option>`).join('');
-      if (!q('logDate').value) {
-        const now = new Date();
-        q('logDate').valueAsDate = now;
-      }
+      if (!q('logDate').value) q('logDate').valueAsDate = new Date();
     }
 
     async function saveVisit(){
@@ -317,11 +261,8 @@
       const outcome = q('logOutcome').value;
       const visitors = q('logVisitors').value.trim();
       const notes = q('logNotes').value.trim();
-
       if (!elderId || !dateStr) return alert('Pick elder and date');
-      const visit = {
-        elderId, visitDate: dateStr, outcome, visitors, notes, createdAt: new Date()
-      };
+      const visit = { elderId, visitDate: dateStr, outcome, visitors, notes, createdAt: new Date() };
       await firebase.addDoc(userCol('visits'), visit);
 
       const ref = firebase.doc(db, 'users', currentUser.uid, 'elders', elderId);
@@ -367,7 +308,7 @@
       const [preferredName, ...rest] = name.split(' ');
       const lastName = rest.join(' ');
       await firebase.addDoc(userCol('elders'), {
-        preferredName, lastName, phone: phone, active: true, firstSeen: new Date(),
+        preferredName, lastName, phone, active: true, firstSeen: new Date(),
         attemptsSinceLastVisit: 0, doNotText: false
       });
     }
@@ -407,12 +348,11 @@
     }
 
     async function importCsv(){
-      const file = q('csvFile').files[0];
+      const file = document.getElementById('csvFile').files[0];
       if (!file) return alert('Choose a CSV file.');
       const data = await parseCsv(file);
       const seenKeys = new Set(data.map(keyFor));
 
-      // build index of existing elders by same composite key approximation
       const existing = Array.from(elders.values());
       function matchExisting(row){
         const phone = cleanPhone(row.Phone||row.phone||'');
@@ -425,7 +365,6 @@
         );
       }
 
-      // Upserts
       for (const row of data){
         const phone = cleanPhone(row.Phone||row.phone||'');
         const payload = {
@@ -439,14 +378,10 @@
           active: true
         };
         const hit = matchExisting(row);
-        if (hit){
-          await firebase.updateDoc(firebase.doc(db, 'users', currentUser.uid, 'elders', hit.id), payload);
-        } else {
-          await firebase.addDoc(userCol('elders'), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 });
-        }
+        if (hit){ await firebase.updateDoc(firebase.doc(db, 'users', currentUser.uid, 'elders', hit.id), payload); }
+        else { await firebase.addDoc(userCol('elders'), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 }); }
       }
 
-      // Deactivate those not seen in this import
       const toDeactivate = existing.filter(e => {
         const key = [cleanPhone(e.phone||''), (e.email||'').toLowerCase(), ((e.preferredName||'').toLowerCase()+'|'+(e.lastName||'').toLowerCase()), (e.householdId||'').toLowerCase()].join('|');
         return !seenKeys.has(key);
@@ -457,27 +392,25 @@
       alert('Import complete. Duplicates merged; actives updated.');
     }
 
-    // ---- Weekly pick (optional write to a schedule collection) ----
     async function pickThisWeek(){
       const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText);
       arr.forEach(e => e._score = nextUpScore(e));
       arr.sort((a,b)=> b._score - a._score);
       if (!arr.length) return alert('No eligible elders.');
       const chosen = arr[0];
-      const monday = (d => { const x = new Date(); const day = x.getDay(); const diff = x.getDate() - day + (day==0?-6:1); x.setDate(diff); x.setHours(0,0,0,0); return x; })();
+      const monday = (() => { const x = new Date(); const day = x.getDay(); const diff = x.getDate() - day + (day==0?-6:1); x.setDate(diff); x.setHours(0,0,0,0); return x; })();
       await firebase.addDoc(userCol('schedule'), {
         weekOf: monday, elderId: chosen.id, elderName: (chosen.preferredName||'')+' '+(chosen.lastName||''),
         createdAt: new Date(), status: 'Planned'
       });
-      alert('Picked: ' + chosen.preferredName + ' ' + chosen.lastName);
+      alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||''));
     }
 
-    // ---- init ----
     initFirebase();
     showView('next');
   </script>
 
-  <!-- Guidance: Firestore Security Rules (set in Firebase Console)
+  <!-- Firestore Security Rules (paste in Firebase Console)
   rules_version = '2';
   service cloud.firestore {
     match /databases/{database}/documents {

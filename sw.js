@@ -1,15 +1,9 @@
-// sw.js — EQ Visit Tracker (v1)
 const CACHE_NAME = 'eq-visit-cache-v1';
-const ASSETS = [
-  '/', '/index.html', '/manifest.webmanifest',
-  '/sw.js',
-  '/icons/icon-192.png', '/icons/icon-512.png'
-];
+const ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/sw.js',
+                '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
-  );
+  e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)));
   self.skipWaiting();
 });
 
@@ -21,7 +15,6 @@ self.addEventListener('activate', (e) => {
   })());
 });
 
-// Simple offline-first for navigation; cache-first for same-origin GET
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
@@ -46,7 +39,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       const cached = await cache.match(req, { ignoreSearch: true });
-      const fetchPromise = fetch(req).then((net) => {
+      const fetchPromise = fetch(req).then(net => {
         cache.put(req, net.clone());
         return net;
       }).catch(() => cached);
