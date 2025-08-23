@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EQ Visit Tracker</title>
+  <meta name="theme-color" content="#145AFF" />
+  <link rel="manifest" href="manifest.webmanifest">
+  <style>
+    :root { --brand:#145AFF; --bg:#f7f9fc; --card:#fff; --muted:#6b7280; --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color:#111827; }
+    header { position: sticky; top:0; z-index: 10; background:#fff; border-bottom:1px solid #e5e7eb; padding: .5rem 1rem; display:flex; align-items:center; gap:.75rem; }
+    header h1 { font-size:1.1rem; margin:0; color: var(--brand); }
+    .grow{ flex:1; }
+    .card { background: var(--card); border:1px solid #e5e7eb; border-radius: 14px; padding: 1rem; }
+    .toolbar { display:flex; gap:.5rem; flex-wrap: wrap; align-items:center; }
+    .btn { background: var(--brand); color:#fff; border:0; padding:.55rem .9rem; border-radius: 12px; cursor:pointer; }
+    .btn.outline { background: transparent; color: var(--brand); border:1px solid var(--brand); }
+    .btn.light { background:#e5edff; color: var(--brand); }
+    .btn.danger { background: var(--bad); }
+    .input, select { padding:.55rem .65rem; border:1px solid #e5e7eb; border-radius: 10px; background:#fff; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .75rem; }
+    .pill { display:inline-block; padding:.2rem .5rem; border-radius:999px; font-size:.75rem; border:1px solid #e5e7eb; background:#fff; }
+    .pill.ok { border-color: var(--ok); color: var(--ok); }
+    .pill.warn { border-color: var(--warn); color: var(--warn); }
+    .pill.bad { border-color: var(--bad); color: var(--bad); }
+    nav { display:flex; gap:.5rem; }
+    main { padding: 1rem; max-width: 1100px; margin: 0 auto; display: grid; gap: 1rem; }
+    .muted { color: var(--muted); }
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding:.5rem; border-bottom:1px solid #e5e7eb; text-align:left; }
+    .section-title { margin:.25rem 0 .25rem; font-size: .95rem; color:#374151; }
+  </style>
+</head>
+<body>
+  <header class="card">
+    <h1>EQ Visit Tracker</h1>
+    <nav>
+      <button class="btn light" onclick="showView('next')">Next Up</button>
+      <button class="btn light" onclick="showView('elders')">Directory</button>
+      <button class="btn light" onclick="showView('log')">Log Visit</button>
+      <button class="btn light" onclick="showView('import')">Import</button>
+    </nav>
+    <div class="grow"></div>
+    <div id="authBox">
+      <span id="currentUser" class="muted"></span>
+      <input id="email" class="input" placeholder="Email">
+      <input id="password" class="input" type="password" placeholder="Password">
+      <button class="btn" onclick="signIn()">Sign in</button>
+      <button class="btn outline" onclick="create()">Create</button>
+      <button class="btn danger" onclick="signOut()" style="display:none" id="logoutBtn">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="view-next" class="card" style="display:none">
+      <div class="toolbar">
+        <input id="searchNext" class="input" placeholder="Search name/phone" oninput="renderNext()">
+        <button class="btn outline" onclick="pickThisWeek()">Pick next elder (for this week)</button>
+      </div>
+      <div class="section-title">Top candidates</div>
+      <div id="nextGrid" class="grid"></div>
+    </section>
+
+    <section id="view-elders" class="card" style="display:none">
+      <div class="toolbar">
+        <input id="searchElders" class="input" placeholder="Search name/phone/address" oninput="renderElders()">
+        <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Last visited</th><th>Attempts</th><th>Actions</th></tr></thead>
+        <tbody id="eldersTbody"></tbody>
+      </table>
+    </section>
+
+    <section id="view-log" class="card" style="display:none">
+      <div class="toolbar">
+        <select id="logElderSelect"></select>
+        <input type="date" id="logDate" class="input">
+        <select id="logOutcome" class="input">
+          <option>Visited</option>
+          <option>Scheduled</option>
+          <option>No answer</option>
+          <option>Reschedule</option>
+        </select>
+        <input id="logVisitors" class="input" placeholder="Visitors (e.g., Presidency)">
+      </div>
+      <textarea id="logNotes" class="input" placeholder="Notes" style="width:100%; height:90px; margin-top:.5rem"></textarea>
+      <div style="margin-top:.5rem">
+        <button class="btn" onclick="saveVisit()">Save visit</button>
+      </div>
+    </section>
+
+    <section id="view-import" class="card" style="display:none">
+      <div class="section-title">Import Elders CSV (see template)</div>
+      <input type="file" id="csvFile" accept=".csv">
+      <div style="margin-top:.5rem">
+        <button class="btn" onclick="importCsv()">Import &amp; Dedupe</button>
+        <a class="btn outline" href="elders_template.csv" download>Download template</a>
+      </div>
+      <p class="muted" style="margin-top:.5rem">Keys used for dedupe (in order): normalized phone, email, name+household. Records not present in the new CSV will be set <b>inactive</b>.</p>
+    </section>
+  </main>
+
+  <!-- Firebase & PapaParse -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <script>
+    // ---- Config (EDIT THESE) ----
+    const FIREBASE_CONFIG = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+    const SETTINGS = {
+      W_DAYS: 0.2,
+      W_ATTEMPTS: 5,
+      BONUS_NEVER: 30,
+      PENALTY_RECENT_CONTACT: -20,
+      COOLDOWN_DAYS: 14
+    };
+
+    // ---- PWA ----
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js?v=1').catch(console.error);
+      });
+    }
+
+    // ---- Firebase init ----
+    let app, auth, db, unsubElders, unsubVisits, currentUser = null;
+    const elders = new Map(); // id -> obj
+    const visits = [];
+
+    function initFirebase(){
+      app = firebase.initializeApp(FIREBASE_CONFIG);
+      auth = firebase.getAuth();
+      db = firebase.getFirestore();
+
+      firebase.enableIndexedDbPersistence(db).catch((err)=>{
+        console.warn('Persistence error:', err.code);
+      });
+
+      firebase.onAuthStateChanged(auth, (user) => {
+        currentUser = user;
+        document.getElementById('currentUser').textContent = user ? user.email : '';
+        document.getElementById('logoutBtn').style.display = user ? 'inline-block' : 'none';
+        if (user) {
+          subscribeData();
+        } else {
+          unsubscribeData();
+          elders.clear();
+          visits.length = 0;
+          renderAll();
+        }
+      });
+    }
+
+    function userCol(path){ // helper for namespacing
+      if (!currentUser) throw new Error('Not signed in');
+      return firebase.collection(db, 'users', currentUser.uid, path);
+    }
+
+    function subscribeData(){
+      unsubElders = firebase.onSnapshot(userCol('elders'), (snap)=>{
+        snap.docChanges().forEach((ch)=>{
+          if (ch.type === 'removed') {
+            elders.delete(ch.doc.id);
+          } else {
+            elders.set(ch.doc.id, { id: ch.doc.id, ...ch.doc.data() });
+          }
+        });
+        renderAll();
+      });
+      unsubVisits = firebase.onSnapshot(userCol('visits'), (snap)=>{
+        visits.length = 0;
+        snap.forEach(d => visits.push({ id: d.id, ...d.data() }));
+        renderAll();
+      });
+    }
+
+    function unsubscribeData(){
+      if (unsubElders) unsubElders();
+      if (unsubVisits) unsubVisits();
+    }
+
+    // ---- Auth ----
+    async function signIn(){
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
+      await firebase.signInWithEmailAndPassword(auth, email, password);
+    }
+    async function create(){
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
+      await firebase.createUserWithEmailAndPassword(auth, email, password);
+    }
+    async function signOut(){ await firebase.signOut(auth); }
+
+    // ---- Helpers ----
+    const q = (id)=>document.getElementById(id);
+    function showView(name){
+      ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none');
+      if (name === 'log') fillLogSelect();
+    }
+    function renderAll(){ renderNext(); renderElders(); fillLogSelect(); }
+    function cleanPhone(s){ return (s||'').replace(/\D/g,''); }
+    function fmtDate(ts){
+      if (!ts) return '—';
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      return d.toLocaleDateString();
+    }
+    function daysSince(ts){
+      if (!ts) return null;
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      return Math.floor((Date.now() - d.getTime())/86400000);
+    }
+
+    // ---- Next Up scoring ----
+    function nextUpScore(e){
+      if (e.active === false || e.doNotText) return -999;
+      const lastVisited = e.lastVisited || null;
+      const days = lastVisited ? daysSince(lastVisited) : null;
+      const daysScore = (days === null ? SETTINGS.BONUS_NEVER : days * SETTINGS.W_DAYS);
+      const attemptsScore = (e.attemptsSinceLastVisit || 0) * SETTINGS.W_ATTEMPTS;
+      const lastContactedDays = e.lastContacted ? daysSince(e.lastContacted) : null;
+      const recentPenalty = (lastContactedDays !== null && lastContactedDays < SETTINGS.COOLDOWN_DAYS) ? SETTINGS.PENALTY_RECENT_CONTACT : 0;
+      return daysScore + attemptsScore + recentPenalty;
+    }
+
+    function renderNext(){
+      const grid = q('nextGrid');
+      const term = q('searchNext').value.trim().toLowerCase();
+      const arr = Array.from(elders.values());
+      arr.forEach(e => e._score = nextUpScore(e));
+      let filtered = arr.filter(e => e._score > -999);
+      if (term) {
+        filtered = filtered.filter(e =>
+          (e.preferredName||'').toLowerCase().includes(term) ||
+          (e.lastName||'').toLowerCase().includes(term) ||
+          (e.phone||'').includes(term)
+        );
+      }
+      filtered.sort((a,b)=> b._score - a._score);
+      grid.innerHTML = filtered.slice(0, 18).map(e => {
+        const ds = e.lastVisited ? daysSince(e.lastVisited) : null;
+        const status = ds === null ? 'warn' : (ds >= 30 ? 'bad' : (ds >= 14 ? 'warn' : 'ok'));
+        const diff = ds === null ? 'Never' : (ds + 'd');
+        const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, this is the Elders Quorum Presidency. Could we stop by Wednesday evening for a short visit?`)}`;
+        return `
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center">
+              <div><b>${(e.preferredName||'') + ' ' + (e.lastName||'')}</b></div>
+              <span class="pill ${status}">${diff}</span>
+            </div>
+            <div class="muted" style="margin:.25rem 0">${e.phone ? '('+cleanPhone(e.phone).slice(-10, -7)+') '+cleanPhone(e.phone).slice(-7, -4)+'-'+cleanPhone(e.phone).slice(-4) : ''}</div>
+            <div style="display:flex; gap:.5rem; margin-top:.25rem">
+              <a class="btn outline" href="${smsUrl}">Text</a>
+              <button class="btn" onclick="quickLogVisit('${e.id}')">Log now</button>
+              <button class="btn outline" onclick="noAnswer('${e.id}')">No answer</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderElders(){
+      const tb = q('eldersTbody');
+      const term = q('searchElders').value.trim().toLowerCase();
+      let arr = Array.from(elders.values());
+      if (term){
+        arr = arr.filter(e =>
+          (e.preferredName||'').toLowerCase().includes(term) ||
+          (e.lastName||'').toLowerCase().includes(term) ||
+          (e.address||'').toLowerCase().includes(term) ||
+          (e.phone||'').includes(term)
+        );
+      }
+      arr.sort((a,b)=> (a.lastName||'').localeCompare(b.lastName||''));
+      tb.innerHTML = arr.map(e => {
+        const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, could we stop by Wednesday evening?`)}`;
+        return `<tr>
+          <td>${(e.preferredName||'') + ' ' + (e.lastName||'')}</td>
+          <td>${e.phone||''}</td>
+          <td>${fmtDate(e.lastVisited)}</td>
+          <td>${e.attemptsSinceLastVisit||0}</td>
+          <td>
+            <a class="btn outline" href="${smsUrl}">Text</a>
+            <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
+            <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
+            <button class="btn danger" onclick="archiveElder('${e.id}')">Archive</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    function fillLogSelect(){
+      const sel = q('logElderSelect');
+      const arr = Array.from(elders.values()).filter(e=>e.active!==false).sort((a,b)=>(a.lastName||'').localeCompare(b.lastName||''));
+      sel.innerHTML = arr.map(e=>`<option value="${e.id}">${(e.preferredName||'')+' '+(e.lastName||'')}</option>`).join('');
+      if (!q('logDate').value) {
+        const now = new Date();
+        q('logDate').valueAsDate = now;
+      }
+    }
+
+    async function saveVisit(){
+      const elderId = q('logElderSelect').value;
+      const dateStr = q('logDate').value;
+      const outcome = q('logOutcome').value;
+      const visitors = q('logVisitors').value.trim();
+      const notes = q('logNotes').value.trim();
+
+      if (!elderId || !dateStr) return alert('Pick elder and date');
+      const visit = {
+        elderId, visitDate: dateStr, outcome, visitors, notes, createdAt: new Date()
+      };
+      await firebase.addDoc(userCol('visits'), visit);
+
+      const ref = firebase.doc(db, 'users', currentUser.uid, 'elders', elderId);
+      const isVisited = (outcome === 'Visited' || outcome === 'Scheduled');
+      await firebase.updateDoc(ref, {
+        lastVisited: isVisited ? new Date(dateStr) : firebase.serverTimestamp(),
+        lastContacted: firebase.serverTimestamp(),
+        attemptsSinceLastVisit: isVisited ? 0 : firebase.increment(1)
+      });
+      q('logNotes').value='';
+      alert('Saved.');
+    }
+
+    async function quickLogVisit(elderId){
+      const ref = firebase.doc(db, 'users', currentUser.uid, 'elders', elderId);
+      await firebase.updateDoc(ref, {
+        lastVisited: firebase.serverTimestamp(),
+        lastContacted: firebase.serverTimestamp(),
+        attemptsSinceLastVisit: 0
+      });
+      await firebase.addDoc(userCol('visits'), {
+        elderId, visitDate: new Date().toISOString().slice(0,10),
+        outcome: 'Visited', visitors: 'Presidency', notes:'(Quick log)', createdAt: new Date()
+      });
+    }
+
+    async function noAnswer(elderId){
+      const ref = firebase.doc(db, 'users', currentUser.uid, 'elders', elderId);
+      await firebase.updateDoc(ref, {
+        lastContacted: firebase.serverTimestamp(),
+        attemptsSinceLastVisit: firebase.increment(1)
+      });
+      await firebase.addDoc(userCol('visits'), {
+        elderId, visitDate: new Date().toISOString().slice(0,10),
+        outcome: 'No answer', visitors: 'Presidency', notes:'', createdAt: new Date()
+      });
+    }
+
+    async function addElderPrompt(){
+      const name = prompt('Preferred name and last name (e.g., John Doe)?');
+      if (!name) return;
+      const phone = prompt('Phone (optional)') || '';
+      const [preferredName, ...rest] = name.split(' ');
+      const lastName = rest.join(' ');
+      await firebase.addDoc(userCol('elders'), {
+        preferredName, lastName, phone: phone, active: true, firstSeen: new Date(),
+        attemptsSinceLastVisit: 0, doNotText: false
+      });
+    }
+
+    async function editElder(id){
+      const e = elders.get(id); if (!e) return;
+      const name = prompt('Edit name', `${e.preferredName||''} ${e.lastName||''}`) || '';
+      const phone = prompt('Edit phone', e.phone||'') || '';
+      const doNotText = confirm('Mark as Do Not Text? Click OK for Yes, Cancel for No');
+      const [preferredName, ...rest] = name.split(' ');
+      const lastName = rest.join(' ');
+      const ref = firebase.doc(db, 'users', currentUser.uid, 'elders', id);
+      await firebase.updateDoc(ref, { preferredName, lastName, phone, doNotText });
+    }
+
+    async function archiveElder(id){
+      if (!confirm('Archive this elder (set inactive)?')) return;
+      const ref = firebase.doc(db, 'users', currentUser.uid, 'elders', id);
+      await firebase.updateDoc(ref, { active: false });
+    }
+
+    // ---- Import CSV & Dedupe ----
+    function parseCsv(file){
+      return new Promise((resolve, reject)=>{
+        Papa.parse(file, { header: true, skipEmptyLines: true,
+          complete: (res)=>resolve(res.data),
+          error: reject
+        });
+      });
+    }
+
+    function keyFor(row){
+      const phone = cleanPhone(row.Phone||row.phone||'');
+      const email = (row.Email||row.email||'').toLowerCase();
+      const name = ((row.PreferredName||row.FirstName||'')+'|'+(row.LastName||'')).toLowerCase();
+      return [phone, email, name, (row.HouseholdId||'').toLowerCase()].join('|');
+    }
+
+    async function importCsv(){
+      const file = q('csvFile').files[0];
+      if (!file) return alert('Choose a CSV file.');
+      const data = await parseCsv(file);
+      const seenKeys = new Set(data.map(keyFor));
+
+      // build index of existing elders by same composite key approximation
+      const existing = Array.from(elders.values());
+      function matchExisting(row){
+        const phone = cleanPhone(row.Phone||row.phone||'');
+        const email = (row.Email||row.email||'').toLowerCase();
+        const name = ((row.PreferredName||row.FirstName||'')+'|'+(row.LastName||'')).toLowerCase();
+        return existing.find(e =>
+          (cleanPhone(e.phone||'') && cleanPhone(e.phone||'') === phone) ||
+          ((e.email||'').toLowerCase() && (e.email||'').toLowerCase() === email) ||
+          (((e.preferredName||'').toLowerCase()+'|'+(e.lastName||'').toLowerCase()) === name)
+        );
+      }
+
+      // Upserts
+      for (const row of data){
+        const phone = cleanPhone(row.Phone||row.phone||'');
+        const payload = {
+          preferredName: row.PreferredName || row.FirstName || '',
+          lastName: row.LastName || '',
+          phone: phone || '',
+          email: row.Email || '',
+          address: row.Address || '',
+          householdId: row.HouseholdId || '',
+          doNotText: ((row.DoNotText||'').toString().toLowerCase().startsWith('y')) ? true : false,
+          active: true
+        };
+        const hit = matchExisting(row);
+        if (hit){
+          await firebase.updateDoc(firebase.doc(db, 'users', currentUser.uid, 'elders', hit.id), payload);
+        } else {
+          await firebase.addDoc(userCol('elders'), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 });
+        }
+      }
+
+      // Deactivate those not seen in this import
+      const toDeactivate = existing.filter(e => {
+        const key = [cleanPhone(e.phone||''), (e.email||'').toLowerCase(), ((e.preferredName||'').toLowerCase()+'|'+(e.lastName||'').toLowerCase()), (e.householdId||'').toLowerCase()].join('|');
+        return !seenKeys.has(key);
+      });
+      for (const e of toDeactivate){
+        await firebase.updateDoc(firebase.doc(db, 'users', currentUser.uid, 'elders', e.id), { active: false });
+      }
+      alert('Import complete. Duplicates merged; actives updated.');
+    }
+
+    // ---- Weekly pick (optional write to a schedule collection) ----
+    async function pickThisWeek(){
+      const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText);
+      arr.forEach(e => e._score = nextUpScore(e));
+      arr.sort((a,b)=> b._score - a._score);
+      if (!arr.length) return alert('No eligible elders.');
+      const chosen = arr[0];
+      const monday = (d => { const x = new Date(); const day = x.getDay(); const diff = x.getDate() - day + (day==0?-6:1); x.setDate(diff); x.setHours(0,0,0,0); return x; })();
+      await firebase.addDoc(userCol('schedule'), {
+        weekOf: monday, elderId: chosen.id, elderName: (chosen.preferredName||'')+' '+(chosen.lastName||''),
+        createdAt: new Date(), status: 'Planned'
+      });
+      alert('Picked: ' + chosen.preferredName + ' ' + chosen.lastName);
+    }
+
+    // ---- init ----
+    initFirebase();
+    showView('next');
+  </script>
+
+  <!-- Guidance: Firestore Security Rules (set in Firebase Console)
+  rules_version = '2';
+  service cloud.firestore {
+    match /databases/{database}/documents {
+      match /users/{uid}/{collection}/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+  }
+  -->
+</body>
+</html>
