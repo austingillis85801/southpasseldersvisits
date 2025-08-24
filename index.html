@@ -38,11 +38,10 @@
     .thbtn span { margin-left:.25rem; color:#6b7280; }
     tr.inactive { opacity:.55; }
     td.namecell { display:flex; align-items:center; gap:.5rem; font-weight:600; }
-    /* Header auth strip tidy */
     #authBox { display:flex; gap:.5rem; align-items:center; margin-left:auto; }
     #currentUser { max-width:45vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#374151; }
 
-    /* -------- Mobile (≤ 640px) -------- */
+    /* Mobile */
     @media (max-width:640px){
       header { gap:.5rem; padding:.5rem .75rem; }
       nav { width:100%; order:1; flex-wrap:wrap; gap:.5rem; }
@@ -51,7 +50,6 @@
       .grid { grid-template-columns:1fr; }
       .card { padding:.75rem; }
       .toolbar { gap:.5rem; }
-      /* Directory table → cards */
       #view-elders table thead { display:none; }
       #view-elders table, #view-elders tbody, #view-elders tr, #view-elders td { display:block; width:100%; }
       #view-elders tbody tr { background:#fff; border:1px solid var(--line); border-radius:12px; padding:.5rem .75rem; margin:.75rem 0; }
@@ -110,7 +108,7 @@
         <span id="eldersCount" class="muted"></span>
       </div>
 
-      <table class="responsive">
+      <table>
         <thead>
           <tr>
             <th><button class="thbtn" onclick="setSort('name')">Name <span id="sort-name"></span></button></th>
@@ -164,7 +162,7 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script type="module">
-    /* ---------- Firebase (v10 modular) ---------- */
+    /* ---------- Firebase ---------- */
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import {
       getAuth, onAuthStateChanged,
@@ -189,7 +187,7 @@
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=1'));
     }
     const app = initializeApp(FIREBASE_CONFIG);
-    const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+    const db  = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
     const auth = getAuth(app);
 
     /* ---------- State & helpers ---------- */
@@ -207,7 +205,9 @@
     const maxDate = (a,b)=> asMs(a) >= asMs(b) ? a : b;
     const hash = (str)=>{ let h=5381; for (let i=0;i<str.length;i++) h=((h<<5)+h)^str.charCodeAt(i); return 'k_'+(h>>>0).toString(36); };
     const collator = new Intl.Collator(undefined, { sensitivity:'base', numeric:true });
-    const startOfYear = (d=new Date()) => new Date(d.getFullYear(),0,1,0,0,0,0);
+
+    // rolling-month helper
+    const monthsAgo = (n)=>{ const d=new Date(); d.setMonth(d.getMonth()-n); d.setHours(0,0,0,0); return d; };
 
     function updateAuthUI(user){
       const signedOut = !user;
@@ -217,18 +217,20 @@
       if (user){ q('email').value = ''; q('password').value = ''; }
     }
 
-    const SETTINGS = { W_DAYS:.2, W_ATTEMPTS:5, BONUS_NEVER:30, PENALTY_RECENT_CONTACT:-20, COOLDOWN_DAYS:14 };
+    // Scoring: prioritize longest-since-visit; huge boost if never visited
+    const SETTINGS = { W_DAYS:.2, W_ATTEMPTS:5, BONUS_NEVER:120, PENALTY_RECENT_CONTACT:-20, COOLDOWN_DAYS:14 };
     function nextUpScore(e){
       if (e.active === false || e.doNotText) return -999;
-      const days = e.lastVisited ? daysSince(e.lastVisited) : null;
-      const daysScore = (days === null ? SETTINGS.BONUS_NEVER : days * SETTINGS.W_DAYS);
+      if (!e.lastVisited) return SETTINGS.BONUS_NEVER + (e.attemptsSinceLastVisit||0)*SETTINGS.W_ATTEMPTS;
+      const days = daysSince(e.lastVisited);
+      const daysScore = days * SETTINGS.W_DAYS;
       const attemptsScore = (e.attemptsSinceLastVisit || 0) * SETTINGS.W_ATTEMPTS;
       const lcd = e.lastContacted ? daysSince(e.lastContacted) : null;
       const recentPenalty = (lcd !== null && lcd < SETTINGS.COOLDOWN_DAYS) ? SETTINGS.PENALTY_RECENT_CONTACT : 0;
       return daysScore + attemptsScore + recentPenalty;
     }
-    const smsBodyFor = (eName) =>
-      `Hey ${eName}, the elders quorum presidency would love to drop in and say hi Wednesday around 7:00. Would that work for you?`;
+    const smsBodyFor = (name) =>
+      `Hey ${name}, the elders quorum presidency would love to drop in and say hi Wednesday around 7:00. Would that work for you?`;
 
     const userCol = path => { if (!currentUser) throw new Error('Not signed in'); return collection(db,'users',currentUser.uid,path); };
 
@@ -277,7 +279,6 @@
       const hay = (norm(e.preferredName)+' '+norm(e.lastName)+' '+norm(e.email)+' '+norm(e.address)+' '+cleanPhone(e.phone||''));
       return tokens.every(t => hay.includes(t));
     };
-
     const wireSearch = () => {
       q('btnSearchElders')?.addEventListener('click', ()=>renderElders());
       q('searchElders')?.addEventListener('keydown', e=>{ if(e.key==='Enter') renderElders(); });
@@ -289,13 +290,13 @@
       q('searchNext')?.addEventListener('input', ()=>renderNext());
     };
 
-    /* ---------- Counters ---------- */
+    /* ---------- Counters (ROLLING 12 MONTHS) ---------- */
     function updateCounters(){
       const all = Array.from(elders.values());
       const active = all.filter(e=>e.active!==false);
-      const jan1 = startOfYear();
-      const remaining = active.filter(e => !e.lastVisited || asMs(e.lastVisited) < jan1.getTime()).length;
-      const yr = q('yearRemaining'); if (yr) yr.textContent = `Remaining this year: ${remaining}`;
+      const threshold = monthsAgo(12); // 12 months ago from today
+      const needVisit = active.filter(e => !e.lastVisited || asMs(e.lastVisited) < threshold.getTime()).length;
+      const yr = q('yearRemaining'); if (yr) yr.textContent = `Need visit (12m): ${needVisit}`;
       const ec = q('eldersCount'); if (ec) ec.textContent = `Total: ${all.length} (${active.length} active)`;
     }
 
@@ -545,7 +546,7 @@
       alert('Import complete (idempotent).');
     };
 
-    /* ---------- Fix duplicates already in DB ---------- */
+    /* ---------- Fix duplicates ---------- */
     window.fixDuplicates = async ()=>{
       if (!confirm('Merge duplicates (preserve visit history)?')) return;
       const uid = currentUser?.uid; if (!uid) return alert('Sign in first.');
@@ -586,9 +587,7 @@
           if (dup.id === keep.id) continue;
 
           const vs = await getDocs(query(userCol('visits'), where('elderId','==', dup.id)));
-          for (const v of vs.docs){
-            await updateDoc(doc(db,'users',uid,'visits',v.id), { elderId: keep.id });
-          }
+          for (const v of vs.docs){ await updateDoc(doc(db,'users',uid,'visits',v.id), { elderId: keep.id }); }
 
           const merged = {
             preferredName: keep.preferredName || dup.preferredName || '',
@@ -615,7 +614,7 @@
     wireSearch();
   </script>
 
-  <!-- Firestore Security Rules (paste in Firebase Console)
+  <!-- Firestore Security Rules
   rules_version = '2';
   service cloud.firestore {
     match /databases/{database}/documents {
