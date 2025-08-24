@@ -43,13 +43,13 @@
       <button class="btn light" onclick="showView('import')">Import</button>
     </nav>
     <div class="grow"></div>
-    <div id="authBox">
+    <div id="authBox" style="display:flex;gap:.5rem;align-items:center">
       <span id="currentUser" class="muted"></span>
       <input id="email" class="input" placeholder="Email" autocomplete="username">
       <input id="password" class="input" type="password" placeholder="Password" autocomplete="current-password">
-      <button class="btn" onclick="signIn()">Sign in</button>
-      <button class="btn outline" onclick="create()">Create</button>
-      <button class="btn danger" onclick="signOut()" style="display:none" id="logoutBtn">Sign out</button>
+      <button class="btn" id="signinBtn" onclick="signIn()">Sign in</button>
+      <button class="btn outline" id="createBtn" onclick="create()">Create</button>
+      <button class="btn danger" id="logoutBtn" onclick="signOut()" style="display:none">Sign out</button>
     </div>
   </header>
 
@@ -99,7 +99,7 @@
         <button class="btn" onclick="importCsv()">Import &amp; Dedupe</button>
         <a class="btn outline" href="elders_template.csv" download>Download template</a>
       </div>
-      <p class="muted" style="margin-top:.5rem">Keys used for dedupe (in order): normalized phone, email, name+household. Records not present in the new CSV will be set <b>inactive</b>.</p>
+      <p class="muted" style="margin-top:.5rem">Keys used for dedupe (in order): normalized phone, email, name+household. Records not present in the new CSV will be set <b>inactive</b> (history preserved).</p>
     </section>
   </main>
 
@@ -114,14 +114,15 @@
       signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
     import {
-      getFirestore, enableIndexedDbPersistence,
+      // new cache API (removes the deprecation warning)
+      initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
       collection, doc, addDoc, updateDoc, onSnapshot,
       serverTimestamp, increment
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     // --- Your Firebase config (from the Console) ---
     const FIREBASE_CONFIG = {
-      apiKey: "AIzaSyCWhXRTryqXRoiRNBSFrWiB-RzmYJ-TQXM",
+      apiKey: "AIzaSyCWhXRTryqXRoiRNB5FrWiB-RzmYJ-TQXM",
       authDomain: "southpass-elders-visit-tracker.firebaseapp.com",
       projectId: "southpass-elders-visit-tracker",
       storageBucket: "southpass-elders-visit-tracker.firebasestorage.app",
@@ -130,12 +131,9 @@
       measurementId: "G-JQKNSH8CTB"
     };
 
-    /* 🔎 DEBUG: expose config & log the exact key the page is using */
+    // (optional) quick visibility while debugging
     window._cfg = FIREBASE_CONFIG;
     console.log('Using Firebase API key:', FIREBASE_CONFIG.apiKey);
-    window._echoAuthEnv = () => {
-      console.table({ origin: location.origin, apiKey: FIREBASE_CONFIG.apiKey, authDomain: FIREBASE_CONFIG.authDomain, projectId: FIREBASE_CONFIG.projectId });
-    };
 
     // --- PWA service worker ---
     if ('serviceWorker' in navigator) {
@@ -144,9 +142,15 @@
 
     // --- Firebase init ---
     const app = initializeApp(FIREBASE_CONFIG);
+
+    // use the new local cache (no console warning)
+    const db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    });
+
     const auth = getAuth(app);
-    const db   = getFirestore(app);
-    enableIndexedDbPersistence(db).catch(e => console.warn('Persistence error:', e.code));
 
     // --- State ---
     let unsubElders = null;
@@ -160,6 +164,14 @@
     const cleanPhone = (s)=> (s||'').replace(/\D/g,'');
     const fmtDate = (ts)=> { if (!ts) return '—'; const d = ts?.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString(); };
     const daysSince = (ts)=> { if (!ts) return null; const d = ts?.toDate ? ts.toDate() : new Date(ts); return Math.floor((Date.now()-d.getTime())/86400000); };
+
+    function updateAuthUI(user){
+      const signedOut = !user;
+      ['email','password','signinBtn','createBtn'].forEach(id => q(id).style.display = signedOut ? 'inline-block' : 'none');
+      q('logoutBtn').style.display = user ? 'inline-block' : 'none';
+      q('currentUser').textContent = user ? user.email : '';
+      if (user){ q('email').value = ''; q('password').value = ''; }
+    }
 
     const SETTINGS = { W_DAYS: 0.2, W_ATTEMPTS: 5, BONUS_NEVER: 30, PENALTY_RECENT_CONTACT: -20, COOLDOWN_DAYS: 14 };
     function nextUpScore(e){
@@ -193,8 +205,7 @@
     // --- Auth wiring ---
     onAuthStateChanged(auth, (user)=>{
       currentUser = user;
-      q('currentUser').textContent = user ? user.email : '';
-      q('logoutBtn').style.display = user ? 'inline-block' : 'none';
+      updateAuthUI(user);
       if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length=0; renderAll(); }
     });
 
@@ -365,62 +376,83 @@
       await updateDoc(ref, { active: false });
     };
 
-    // CSV import
+    // ---- CSV import with robust dedupe (preserves visit history) ----
     function parseCsv(file){
       return new Promise((resolve, reject)=>{
         Papa.parse(file, { header:true, skipEmptyLines:true,
           complete: (res)=>resolve(res.data), error: reject });
       });
     }
-    function keyFor(row){
-      const phone = cleanPhone(row.Phone||row.phone||'');
-      const email = (row.Email||row.email||'').toLowerCase();
-      const name  = ((row.PreferredName||row.FirstName||'')+'|'+(row.LastName||'')).toLowerCase();
-      return [phone,email,name,(row.HouseholdId||'').toLowerCase()].join('|');
-    }
+    const norm = s => (s||'').toString().trim().toLowerCase();
+    const keyOf = r => [
+      (r.Phone||r.phone)? cleanPhone(r.Phone||r.phone) : '',
+      norm(r.Email||r.email),
+      norm((r.PreferredName||r.FirstName||'') + '|' + (r.LastName||'')),
+      norm(r.HouseholdId||'')
+    ].join('|');
+
     window.importCsv = async ()=>{
       const file = document.getElementById('csvFile').files[0];
       if (!file) return alert('Choose a CSV file.');
-      const data = await parseCsv(file);
-      const seenKeys = new Set(data.map(keyFor));
+      const rows = await parseCsv(file);
 
+      // Build maps of existing elders for O(1) matching
       const existing = Array.from(elders.values());
-      function matchExisting(row){
-        const phone = cleanPhone(row.Phone||row.phone||'');
-        const email = (row.Email||row.email||'').toLowerCase();
-        const name  = ((row.PreferredName||row.FirstName||'')+'|'+(row.LastName||'')).toLowerCase();
-        return existing.find(e =>
-          (cleanPhone(e.phone||'') && cleanPhone(e.phone||'') === phone) ||
-          ((e.email||'').toLowerCase() && (e.email||'').toLowerCase() === email) ||
-          (((e.preferredName||'').toLowerCase()+'|'+(e.lastName||'').toLowerCase()) === name)
-        );
+      const byPhone = new Map(), byEmail = new Map(), byNameHH = new Map();
+      for (const e of existing){
+        const p = cleanPhone(e.phone||''); if (p) byPhone.set(p, e);
+        const em = norm(e.email); if (em) byEmail.set(em, e);
+        const nm = norm((e.preferredName||'')+'|'+(e.lastName||''))+'|'+norm(e.householdId||'');
+        byNameHH.set(nm, e);
       }
 
-      for (const row of data){
-        const phone = cleanPhone(row.Phone||row.phone||'');
+      const seenKeys = new Set();
+      for (const r of rows){
+        const phone = cleanPhone(r.Phone||r.phone||'');
+        const email = norm(r.Email||r.email);
+        const nameHH = norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||''))+'|'+norm(r.HouseholdId||'');
+        const key = keyOf(r);
+        seenKeys.add(key);
+
+        const match = byPhone.get(phone) || byEmail.get(email) || byNameHH.get(nameHH);
+
         const payload = {
-          preferredName: row.PreferredName || row.FirstName || '',
-          lastName: row.LastName || '',
+          preferredName: r.PreferredName || r.FirstName || '',
+          lastName: r.LastName || '',
           phone: phone || '',
-          email: row.Email || '',
-          address: row.Address || '',
-          householdId: row.HouseholdId || '',
-          doNotText: ((row.DoNotText||'').toString().toLowerCase().startsWith('y')) ? true : false,
+          email: r.Email || '',
+          address: r.Address || '',
+          householdId: r.HouseholdId || '',
+          doNotText: ((r.DoNotText||'').toString().toLowerCase().startsWith('y')),
           active: true
         };
-        const hit = matchExisting(row);
-        if (hit){ await updateDoc(doc(db,'users',currentUser.uid,'elders',hit.id), payload); }
-        else { await addDoc(userCol('elders'), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 }); }
+
+        if (match){
+          // Update existing doc (ID stays the same -> visit history preserved)
+          await updateDoc(doc(db,'users',currentUser.uid,'elders',match.id), payload);
+        } else {
+          // New elder
+          const ref = await addDoc(userCol('elders'), {
+            ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0
+          });
+          // Update maps so duplicates within the same CSV don’t create multiples
+          const created = { id: ref.id, ...payload };
+          if (phone) byPhone.set(phone, created);
+          if (email) byEmail.set(email, created);
+          byNameHH.set(nameHH, created);
+        }
       }
 
-      const toDeactivate = existing.filter(e=>{
-        const key = [cleanPhone(e.phone||''),(e.email||'').toLowerCase(),((e.preferredName||'').toLowerCase()+'|'+(e.lastName||'').toLowerCase()),(e.householdId||'').toLowerCase()].join('|');
-        return !seenKeys.has(key);
-      });
-      for (const e of toDeactivate){
-        await updateDoc(doc(db,'users',currentUser.uid,'elders',e.id), { active:false });
+      // Mark any existing elders not present in the new CSV as inactive (keep history)
+      for (const e of existing){
+        const k = [
+          cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||'')), norm(e.householdId||'')
+        ].join('|');
+        if (!seenKeys.has(k)){
+          await updateDoc(doc(db,'users',currentUser.uid,'elders',e.id), { active:false });
+        }
       }
-      alert('Import complete. Duplicates merged; actives updated.');
+      alert('Import complete. Duplicates merged; history kept; new elders added; missing set inactive.');
     };
 
     window.pickThisWeek = async ()=>{
