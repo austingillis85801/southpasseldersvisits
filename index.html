@@ -58,7 +58,8 @@
   <main>
     <section id="view-next" class="card" style="display:none">
       <div class="toolbar">
-        <input id="searchNext" class="input" placeholder="Search name/phone/email/address" oninput="renderNext()">
+        <input id="searchNext" class="input" placeholder="Search name/phone/email/address">
+        <button class="btn outline" id="btnSearchNext">Search</button>
         <button class="btn outline" onclick="pickThisWeek()">Pick next elder (for this week)</button>
       </div>
       <div class="section-title">Top candidates</div>
@@ -67,7 +68,8 @@
 
     <section id="view-elders" class="card" style="display:none">
       <div class="toolbar">
-        <input id="searchElders" class="input" placeholder="Search name/phone/address/email" oninput="renderElders()">
+        <input id="searchElders" class="input" placeholder="Search name/phone/address/email">
+        <button class="btn outline" id="btnSearchElders">Search</button>
         <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
       </div>
       <table>
@@ -112,7 +114,7 @@
         <a class="btn outline" href="elders_template.csv" download>Download template</a>
       </div>
       <p class="muted" style="margin-top:.5rem">
-        Import is idempotent (safe to run multiple times). Records missing from new CSV are <b>inactive</b>. Visit history is preserved.
+        Import is idempotent (safe to run multiple times). Missing records become <b>inactive</b>. Visit history is preserved.
       </p>
     </section>
   </main>
@@ -141,7 +143,6 @@
       appId: "1:736973707480:web:0bb5ead0d5b43d55bb9fad",
       measurementId: "G-JQKNSH8CTB"
     };
-    window._cfg = FIREBASE_CONFIG;
     console.log('Using Firebase API key:', FIREBASE_CONFIG.apiKey);
 
     // SW
@@ -239,15 +240,34 @@
       });
     }
 
-    // UI
-    window.showView = (name)=> { ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none'); if (name==='log') fillLogSelect(); };
-    function renderAll(){ renderNext(); renderElders(); fillLogSelect(); }
-
     function filterByTokens(e, tokens){
       if (!tokens.length) return true;
       const hay = (norm(e.preferredName)+' '+norm(e.lastName)+' '+norm(e.email)+' '+norm(e.address)+' '+cleanPhone(e.phone||''));
       return tokens.every(t => hay.includes(t));
     }
+
+    // expose renderers for buttons
+    window.renderNext = renderNext;
+    window.renderElders = renderElders;
+
+    // Wire up search buttons & Enter key
+    const wireSearch = () => {
+      q('btnSearchElders')?.addEventListener('click', ()=>renderElders());
+      q('searchElders')?.addEventListener('keydown', e=>{ if(e.key==='Enter') renderElders(); });
+      q('searchElders')?.addEventListener('input', ()=>renderElders());
+
+      q('btnSearchNext')?.addEventListener('click', ()=>renderNext());
+      q('searchNext')?.addEventListener('keydown', e=>{ if(e.key==='Enter') renderNext(); });
+      q('searchNext')?.addEventListener('input', ()=>renderNext());
+    };
+
+    // UI
+    window.showView = (name)=> {
+      ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none');
+      if (name==='log') fillLogSelect();
+      updateSortArrows();
+    };
+    function renderAll(){ renderNext(); renderElders(); fillLogSelect(); updateSortArrows(); }
 
     function renderNext(){
       const grid = q('nextGrid');
@@ -283,13 +303,12 @@
       const tokens = norm(q('searchElders').value).split(/\s+/).filter(Boolean);
       let arr = Array.from(elders.values()).filter(e=>filterByTokens(e, tokens));
 
-      // sort
+      // sorting
       const dir = (sortDir==='asc') ? 1 : -1;
       const cmpName = (a,b)=> ((a.lastName||'').localeCompare(b.lastName||'') || (a.preferredName||'').localeCompare(b.preferredName||'')) * dir;
       const cmpPhone = (a,b)=> cleanPhone(a.phone||'').localeCompare(cleanPhone(b.phone||'')) * dir;
       const cmpVisited = (a,b)=> (asMs(a.lastVisited) - asMs(b.lastVisited)) * dir;
       const cmpAttempts = (a,b)=> ((a.attemptsSinceLastVisit||0) - (b.attemptsSinceLastVisit||0)) * dir;
-
       const cmps = { name:cmpName, phone:cmpPhone, visited:cmpVisited, attempts:cmpAttempts };
       arr.sort(cmps[sortBy] || cmpName);
 
@@ -385,12 +404,12 @@
       await updateDoc(doc(db, 'users', currentUser.uid, 'elders', id), { active: false });
     };
 
-    // ---------- Canonical keys ----------
+    // ---------- Canonical keys (no householdId) ----------
     const keyFromDoc = (e) => [
-      cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||'')), norm(e.householdId||'')
+      cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||''))
     ].join('|');
     const keyFromRow = (r) => [
-      cleanPhone(r.Phone||r.phone||''), norm(r.Email||r.email||''), norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||'')), norm(r.HouseholdId||'')
+      cleanPhone(r.Phone||r.phone||''), norm(r.Email||r.email||''), norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||''))
     ].join('|');
 
     // ---------- Export backup ----------
@@ -438,7 +457,6 @@
           phone: phone || '',
           email: r.Email || '',
           address: r.Address || '',
-          householdId: r.HouseholdId || '',
           doNotText: ((r.DoNotText||'').toString().toLowerCase().startsWith('y')),
           active: true
         };
@@ -462,7 +480,7 @@
       alert('Import complete (idempotent).');
     };
 
-    // ---------- Fix duplicates already in DB ----------
+    // ---------- Fix duplicates already in DB (phone OR email OR full name) ----------
     window.fixDuplicates = async ()=>{
       if (!confirm('Merge duplicates (preserve visit history)?')) return;
       const uid = currentUser?.uid; if (!uid) return alert('Sign in first.');
@@ -470,7 +488,7 @@
       const es = await getDocs(userCol('elders'));
       const items = es.docs.map(d=>({ id:d.id, ...d.data() }));
 
-      // Union-Find over three keys: phone, email, name+household
+      // Union-Find clustering by phone, email, and full name
       const find = (p, x)=> (p[x]===x ? x : (p[x]=find(p, p[x])));
       const unite = (p, a, b)=>{ a=find(p,a); b=find(p,b); if (a!==b) p[b]=a; };
 
@@ -488,9 +506,9 @@
 
       const byPhone = mapify(e=>cleanPhone(e.phone||''));
       const byEmail = mapify(e=>norm(e.email||''));
-      const byNameHH= mapify(e=>norm((e.preferredName||'')+'|'+(e.lastName||''))+'|'+norm(e.householdId||''));
+      const byName  = mapify(e=>norm((e.preferredName||'')+'|'+(e.lastName||'')));
 
-      [byPhone, byEmail, byNameHH].forEach(map=>{
+      ;[byPhone, byEmail, byName].forEach(map=>{
         map.forEach(ids=>{
           for (let i=1;i<ids.length;i++) unite(parent, ids[0], ids[i]);
         });
@@ -505,9 +523,9 @@
 
       let mergedCount = 0;
 
-      const score = (e)=> (e.email?1:0)+(e.phone?1:0)+(e.address?1:0)+(e.householdId?1:0)+(e.active!==false?1:0)+(e.lastVisited?2:0)+(e.lastContacted?1:0)+((e.attemptsSinceLastVisit||0)>0?1:0);
+      const score = (e)=> (e.email?1:0)+(e.phone?1:0)+(e.address?1:0)+(e.active!==false?1:0)+(e.lastVisited?2:0)+(e.lastContacted?1:0)+((e.attemptsSinceLastVisit||0)>0?1:0);
 
-      for (const [root, group] of clusters){
+      for (const [, group] of clusters){
         if (group.length <= 1) continue;
 
         // pick keeper
@@ -533,7 +551,6 @@
             phone: keep.phone || dup.phone || '',
             email: keep.email || dup.email || '',
             address: keep.address || dup.address || '',
-            householdId: keep.householdId || dup.householdId || '',
             lastVisited: maxDate(keep.lastVisited, dup.lastVisited) || keep.lastVisited || dup.lastVisited || null,
             lastContacted: maxDate(keep.lastContacted, dup.lastContacted) || keep.lastContacted || dup.lastContacted || null,
             attemptsSinceLastVisit: Math.max(keep.attemptsSinceLastVisit||0, dup.attemptsSinceLastVisit||0),
@@ -563,8 +580,9 @@
       alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||'' ));
     };
 
-    // Initial view
+    // Initial view + wire search inputs
     window.showView('next');
+    wireSearch();
   </script>
 
   <!-- Firestore Security Rules (paste in Firebase Console)
