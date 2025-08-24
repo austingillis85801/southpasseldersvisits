@@ -61,8 +61,12 @@
         <input id="searchNext" class="input" placeholder="Search name/phone/email/address">
         <button class="btn outline" id="btnSearchNext">Search</button>
         <button class="btn outline" onclick="pickThisWeek()">Pick next elder (for this week)</button>
+        <div class="grow"></div>
+        <span id="yearRemaining" class="muted"></span>
       </div>
-      <div class="section-title">Top candidates</div>
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Top candidates</span>
+      </div>
       <div id="nextGrid" class="grid"></div>
     </section>
 
@@ -71,6 +75,8 @@
         <input id="searchElders" class="input" placeholder="Search name/phone/address/email">
         <button class="btn outline" id="btnSearchElders">Search</button>
         <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
+        <div class="grow"></div>
+        <span id="eldersCount" class="muted"></span>
       </div>
       <table>
         <thead>
@@ -110,6 +116,7 @@
       <div style="margin-top:.5rem; display:flex; gap:.5rem; flex-wrap:wrap">
         <button class="btn" onclick="importCsv()">Import &amp; Dedupe</button>
         <button class="btn outline" onclick="exportBackup()">Export backup (JSON)</button>
+        <button class="btn outline" onclick="exportCsv()">Export CSV</button>
         <button class="btn danger" onclick="fixDuplicates()">Fix duplicates</button>
         <a class="btn outline" href="elders_template.csv" download>Download template</a>
       </div>
@@ -133,7 +140,7 @@
       onSnapshot, query, where, serverTimestamp, increment
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    // ---- Firebase config (your confirmed key) ----
+    // ---- Firebase config ----
     const FIREBASE_CONFIG = {
       apiKey: "AIzaSyCWhXRTryqXRoiRNBSFrWiB-RzmYJ-TQXM",
       authDomain: "southpass-elders-visit-tracker.firebaseapp.com",
@@ -172,6 +179,8 @@
     const asMs = (t)=> t ? (t.toDate ? t.toDate().getTime() : new Date(t).getTime()) : 0;
     const maxDate = (a,b)=> asMs(a) >= asMs(b) ? a : b;
     const hash = (str)=>{ let h=5381; for (let i=0;i<str.length;i++) h=((h<<5)+h)^str.charCodeAt(i); return 'k_'+(h>>>0).toString(36); };
+
+    function startOfYear(d=new Date()){ return new Date(d.getFullYear(),0,1,0,0,0,0); }
 
     function updateAuthUI(user){
       const signedOut = !user;
@@ -246,7 +255,7 @@
       return tokens.every(t => hay.includes(t));
     }
 
-    // expose renderers for buttons
+    // expose renderers
     window.renderNext = renderNext;
     window.renderElders = renderElders;
 
@@ -261,13 +270,24 @@
       q('searchNext')?.addEventListener('input', ()=>renderNext());
     };
 
+    // ---------- Counters ----------
+    function updateCounters(){
+      const all = Array.from(elders.values());
+      const active = all.filter(e=>e.active!==false);
+      const jan1 = startOfYear();
+      const remaining = active.filter(e => !e.lastVisited || asMs(e.lastVisited) < jan1.getTime()).length;
+      const yr = q('yearRemaining'); if (yr) yr.textContent = `Remaining this year: ${remaining}`;
+      const ec = q('eldersCount'); if (ec) ec.textContent = `Total: ${all.length} (${active.length} active)`;
+    }
+
     // UI
     window.showView = (name)=> {
       ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none');
       if (name==='log') fillLogSelect();
       updateSortArrows();
+      updateCounters();
     };
-    function renderAll(){ renderNext(); renderElders(); fillLogSelect(); updateSortArrows(); }
+    function renderAll(){ renderNext(); renderElders(); fillLogSelect(); updateSortArrows(); updateCounters(); }
 
     function renderNext(){
       const grid = q('nextGrid');
@@ -422,6 +442,32 @@
       const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'eq-visit-backup.json'; a.click(); URL.revokeObjectURL(a.href);
+    };
+
+    // ---------- Export CSV ----------
+    window.exportCsv = async ()=>{
+      const snap = await getDocs(userCol('elders'));
+      const rows = snap.docs.map(d=>{
+        const e = { id:d.id, ...d.data() };
+        const toIso = (t)=> t ? (t.toDate ? t.toDate().toISOString().slice(0,10) : new Date(t).toISOString().slice(0,10)) : '';
+        return {
+          PreferredName: e.preferredName || '',
+          LastName:      e.lastName || '',
+          Phone:         e.phone || '',
+          Email:         e.email || '',
+          Address:       e.address || '',
+          DoNotText:     e.doNotText ? 'Yes' : 'No',
+          Active:        e.active!==false ? 'Yes' : 'No',
+          LastVisited:   toIso(e.lastVisited),
+          LastContacted: toIso(e.lastContacted),
+          Attempts:      e.attemptsSinceLastVisit || 0,
+          Id:            e.id
+        };
+      });
+      const csv = Papa.unparse(rows);
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'elders_export.csv'; a.click(); URL.revokeObjectURL(a.href);
     };
 
     // ---------- Import (idempotent) ----------
