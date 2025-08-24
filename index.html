@@ -105,9 +105,9 @@
 
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-  <!-- Everything below is one module: imports + app code -->
+  <!-- EVERYTHING below runs as one ES module -->
   <script type="module">
-    // --- Imports (modular SDK) ---
+    // --- Firebase imports ---
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import {
       getAuth, onAuthStateChanged,
@@ -119,9 +119,9 @@
       serverTimestamp, increment
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    // --- Config (YOUR values from Firebase Console) ---
+    // --- Your Firebase config (from the Console) ---
     const FIREBASE_CONFIG = {
-      apiKey: "AIzaSyCWhXRTryqXRoiRNB5FrWiB-RzmYJ-TQXM",
+      apiKey: "AIzaSyCWhXRTryqXRoiRNBSFrWiB-RzmYJ-TQXM",
       authDomain: "southpass-elders-visit-tracker.firebaseapp.com",
       projectId: "southpass-elders-visit-tracker",
       storageBucket: "southpass-elders-visit-tracker.firebasestorage.app",
@@ -130,12 +130,19 @@
       measurementId: "G-JQKNSH8CTB"
     };
 
-    // --- PWA SW ---
+    /* 🔎 DEBUG: expose config & log the exact key the page is using */
+    window._cfg = FIREBASE_CONFIG;
+    console.log('Using Firebase API key:', FIREBASE_CONFIG.apiKey);
+    window._echoAuthEnv = () => {
+      console.table({ origin: location.origin, apiKey: FIREBASE_CONFIG.apiKey, authDomain: FIREBASE_CONFIG.authDomain, projectId: FIREBASE_CONFIG.projectId });
+    };
+
+    // --- PWA service worker ---
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=1'));
     }
 
-    // --- Firebase init (bind instances to THIS app) ---
+    // --- Firebase init ---
     const app = initializeApp(FIREBASE_CONFIG);
     const auth = getAuth(app);
     const db   = getFirestore(app);
@@ -191,7 +198,7 @@
       if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length=0; renderAll(); }
     });
 
-    // Click handlers (global because of inline onclick)
+    // Global click handlers (because of inline onclick)
     window.signIn = async ()=>{
       const email = q('email').value.trim();
       const password = q('password').value.trim();
