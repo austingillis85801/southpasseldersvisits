@@ -25,6 +25,7 @@
     .pill.ok { border-color:var(--ok); color:var(--ok); }
     .pill.warn { border-color:var(--warn); color:var(--warn); }
     .pill.bad { border-color:var(--bad); color:var(--bad); }
+    .pill.gray { border-color:#9ca3af; color:#6b7280; }
     nav { display:flex; gap:.5rem; }
     main { padding:1rem; max-width:1100px; margin:0 auto; display:grid; gap:1rem; }
     .muted { color:var(--muted); }
@@ -33,6 +34,8 @@
     .section-title { margin:.25rem 0 .25rem; font-size:.95rem; color:#374151; }
     .thbtn { background:transparent; border:0; cursor:pointer; font:inherit; padding:0; color:#111827; }
     .thbtn span { margin-left:.25rem; color:#6b7280; }
+    tr.inactive { opacity:.55; }
+    td.namecell { display:flex; align-items:center; gap:.5rem; }
   </style>
 </head>
 <body>
@@ -64,9 +67,7 @@
         <div class="grow"></div>
         <span id="yearRemaining" class="muted"></span>
       </div>
-      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>Top candidates</span>
-      </div>
+      <div class="section-title">Top candidates</div>
       <div id="nextGrid" class="grid"></div>
     </section>
 
@@ -75,6 +76,9 @@
         <input id="searchElders" class="input" placeholder="Search name/phone/address/email">
         <button class="btn outline" id="btnSearchElders">Search</button>
         <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
+        <label style="display:flex;align-items:center;gap:.35rem;margin-left:.5rem">
+          <input type="checkbox" id="hideInactive" checked> Hide inactive
+        </label>
         <div class="grow"></div>
         <span id="eldersCount" class="muted"></span>
       </div>
@@ -85,6 +89,7 @@
             <th><button class="thbtn" onclick="setSort('phone')">Phone <span id="sort-phone"></span></button></th>
             <th><button class="thbtn" onclick="setSort('visited')">Last visited <span id="sort-visited"></span></button></th>
             <th><button class="thbtn" onclick="setSort('attempts')">Attempts <span id="sort-attempts"></span></button></th>
+            <th>Status</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -152,12 +157,10 @@
     };
     console.log('Using Firebase API key:', FIREBASE_CONFIG.apiKey);
 
-    // SW
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=1'));
     }
 
-    // Firebase init
     const app = initializeApp(FIREBASE_CONFIG);
     const db = initializeFirestore(app, {
       localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
@@ -179,6 +182,7 @@
     const asMs = (t)=> t ? (t.toDate ? t.toDate().getTime() : new Date(t).getTime()) : 0;
     const maxDate = (a,b)=> asMs(a) >= asMs(b) ? a : b;
     const hash = (str)=>{ let h=5381; for (let i=0;i<str.length;i++) h=((h<<5)+h)^str.charCodeAt(i); return 'k_'+(h>>>0).toString(36); };
+    const collator = new Intl.Collator(undefined, { sensitivity:'base', numeric:true });
 
     function startOfYear(d=new Date()){ return new Date(d.getFullYear(),0,1,0,0,0,0); }
 
@@ -225,17 +229,12 @@
       updateAuthUI(user);
       if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length=0; renderAll(); }
     });
-
-    window.signIn = async ()=>{ try{
-      await signInWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim());
-    }catch(e){ console.error('signIn error:', e); alert('Sign-in failed: '+(e.message||e.code)); } };
-    window.create = async ()=>{ try{
-      await createUserWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim());
-    }catch(e){ console.error('create error:', e); alert('Create failed: '+(e.message||e.code)); } };
+    window.signIn = async ()=>{ try{ await signInWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim()); }catch(e){ alert('Sign-in failed: '+(e.message||e.code)); } };
+    window.create = async ()=>{ try{ await createUserWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim()); }catch(e){ alert('Create failed: '+(e.message||e.code)); } };
     window.signOut = async ()=>{ try{ await signOut(auth); }catch(e){ alert('Sign-out failed: '+(e.message||e.code)); } };
 
     // ---------- Sorting & Search ----------
-    let sortBy = 'name', sortDir = 'asc'; // default
+    let sortBy = 'name', sortDir = 'asc'; // default A→Z
     window.setSort = (key)=>{
       if (sortBy === key) sortDir = (sortDir==='asc' ? 'desc' : 'asc');
       else { sortBy = key; sortDir = (key==='visited' ? 'desc' : 'asc'); }
@@ -248,22 +247,19 @@
         el.textContent = (sortBy===k) ? (sortDir==='asc' ? '▲' : '▼') : '';
       });
     }
-
     function filterByTokens(e, tokens){
       if (!tokens.length) return true;
       const hay = (norm(e.preferredName)+' '+norm(e.lastName)+' '+norm(e.email)+' '+norm(e.address)+' '+cleanPhone(e.phone||''));
       return tokens.every(t => hay.includes(t));
     }
-
-    // expose renderers
     window.renderNext = renderNext;
     window.renderElders = renderElders;
 
-    // Wire up search buttons & Enter key
     const wireSearch = () => {
       q('btnSearchElders')?.addEventListener('click', ()=>renderElders());
       q('searchElders')?.addEventListener('keydown', e=>{ if(e.key==='Enter') renderElders(); });
       q('searchElders')?.addEventListener('input', ()=>renderElders());
+      q('hideInactive')?.addEventListener('change', ()=>renderElders());
 
       q('btnSearchNext')?.addEventListener('click', ()=>renderNext());
       q('searchNext')?.addEventListener('keydown', e=>{ if(e.key==='Enter') renderNext(); });
@@ -321,12 +317,16 @@
     function renderElders(){
       const tb = q('eldersTbody');
       const tokens = norm(q('searchElders').value).split(/\s+/).filter(Boolean);
-      let arr = Array.from(elders.values()).filter(e=>filterByTokens(e, tokens));
+      const hideInactive = q('hideInactive').checked;
 
-      // sorting
+      let arr = Array.from(elders.values())
+        .filter(e => (!hideInactive || e.active!==false))
+        .filter(e => filterByTokens(e, tokens));
+
+      // sorting (collator for consistent A↔Z)
       const dir = (sortDir==='asc') ? 1 : -1;
-      const cmpName = (a,b)=> ((a.lastName||'').localeCompare(b.lastName||'') || (a.preferredName||'').localeCompare(b.preferredName||'')) * dir;
-      const cmpPhone = (a,b)=> cleanPhone(a.phone||'').localeCompare(cleanPhone(b.phone||'')) * dir;
+      const cmpName = (a,b)=> (collator.compare(a.lastName||'', b.lastName||'') || collator.compare(a.preferredName||'', b.preferredName||'')) * dir;
+      const cmpPhone = (a,b)=> collator.compare(cleanPhone(a.phone||''), cleanPhone(b.phone||'')) * dir;
       const cmpVisited = (a,b)=> (asMs(a.lastVisited) - asMs(b.lastVisited)) * dir;
       const cmpAttempts = (a,b)=> ((a.attemptsSinceLastVisit||0) - (b.attemptsSinceLastVisit||0)) * dir;
       const cmps = { name:cmpName, phone:cmpPhone, visited:cmpVisited, attempts:cmpAttempts };
@@ -334,26 +334,31 @@
 
       tb.innerHTML = arr.map(e=>{
         const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, could we stop by Wednesday evening?`)}`;
-        return `<tr>
-          <td>${(e.preferredName||'') + ' ' + (e.lastName||'')}</td>
+        const inactive = e.active===false;
+        const statusPill = inactive ? `<span class="pill gray">Inactive</span>` : `<span class="pill ok">Active</span>`;
+        const archiveLabel = inactive ? 'Unarchive' : 'Archive';
+        return `<tr class="${inactive?'inactive':''}">
+          <td class="namecell">${(e.preferredName||'') + ' ' + (e.lastName||'')}</td>
           <td>${e.phone||''}</td>
           <td>${fmtDate(e.lastVisited)}</td>
           <td>${e.attemptsSinceLastVisit||0}</td>
+          <td>${statusPill}</td>
           <td>
             <a class="btn outline" href="${smsUrl}">Text</a>
             <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
             <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
-            <button class="btn danger" onclick="archiveElder('${e.id}')">Archive</button>
+            <button class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabel}</button>
           </td>
         </tr>`;
       }).join('');
 
       updateSortArrows();
+      updateCounters();
     }
 
     function fillLogSelect(){
       const sel = q('logElderSelect');
-      const arr = Array.from(elders.values()).filter(e=>e.active!==false).sort((a,b)=>(a.lastName||'').localeCompare(b.lastName||''));
+      const arr = Array.from(elders.values()).filter(e=>e.active!==false).sort((a,b)=>collator.compare(a.lastName||'', b.lastName||''));
       sel.innerHTML = arr.map(e=>`<option value="${e.id}">${(e.preferredName||'')+' '+(e.lastName||'')}</option>`).join('');
       if (!q('logDate').value) q('logDate').valueAsDate = new Date();
     }
@@ -420,8 +425,14 @@
       await updateDoc(ref, { preferredName, lastName, phone, doNotText });
     };
 
-    window.archiveElder = async (id)=>{ if (!confirm('Archive this elder (set inactive)?')) return;
-      await updateDoc(doc(db, 'users', currentUser.uid, 'elders', id), { active: false });
+    window.toggleArchive = async (id, isInactive)=>{
+      const ref = doc(db, 'users', currentUser.uid, 'elders', id);
+      if (isInactive) {
+        await updateDoc(ref, { active: true });
+      } else {
+        if (!confirm('Archive this elder (set inactive)?')) return;
+        await updateDoc(ref, { active: false });
+      }
     };
 
     // ---------- Canonical keys (no householdId) ----------
@@ -526,7 +537,7 @@
       alert('Import complete (idempotent).');
     };
 
-    // ---------- Fix duplicates already in DB (phone OR email OR full name) ----------
+    // ---------- Fix duplicates already in DB ----------
     window.fixDuplicates = async ()=>{
       if (!confirm('Merge duplicates (preserve visit history)?')) return;
       const uid = currentUser?.uid; if (!uid) return alert('Sign in first.');
@@ -574,7 +585,6 @@
       for (const [, group] of clusters){
         if (group.length <= 1) continue;
 
-        // pick keeper
         let keep = group[0];
         for (const g of group.slice(1)){
           const sg = score(g), sk = score(keep);
@@ -584,13 +594,11 @@
         for (const dup of group){
           if (dup.id === keep.id) continue;
 
-          // move visits
           const vs = await getDocs(query(userCol('visits'), where('elderId','==', dup.id)));
           for (const v of vs.docs){
             await updateDoc(doc(db,'users',uid,'visits',v.id), { elderId: keep.id });
           }
 
-          // merge data
           const merged = {
             preferredName: keep.preferredName || dup.preferredName || '',
             lastName: keep.lastName || dup.lastName || '',
@@ -605,7 +613,6 @@
           };
           await updateDoc(doc(db,'users',uid,'elders',keep.id), merged);
 
-          // delete dup
           await deleteDoc(doc(db,'users',uid,'elders',dup.id));
           mergedCount++;
         }
@@ -614,7 +621,6 @@
       alert(`Fixed ${mergedCount} duplicate record(s).`);
     };
 
-    // Pick this week
     window.pickThisWeek = async ()=>{
       const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText);
       arr.forEach(e => e._score = nextUpScore(e));
