@@ -7,39 +7,64 @@
   <meta name="theme-color" content="#145AFF" />
   <link rel="manifest" href="manifest.webmanifest">
   <style>
-    :root { --brand:#145AFF; --bg:#f7f9fc; --card:#fff; --muted:#6b7280; --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color:#111827; }
-    header { position: sticky; top:0; z-index: 10; background:#fff; border-bottom:1px solid #e5e7eb; padding:.5rem 1rem; display:flex; align-items:center; gap:.75rem; }
+    :root {
+      --brand:#145AFF; --bg:#f7f9fc; --card:#fff; --muted:#6b7280;
+      --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --line:#e5e7eb;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:#111827; }
+    header { position:sticky; top:0; z-index:10; background:#fff; border-bottom:1px solid var(--line);
+             padding:.5rem 1rem; display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
     header h1 { font-size:1.1rem; margin:0; color:var(--brand); }
-    .grow{ flex:1; }
-    .card { background:var(--card); border:1px solid #e5e7eb; border-radius:14px; padding:1rem; }
+    .grow { flex:1; min-width:.5rem; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:1rem; }
     .toolbar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
     .btn { background:var(--brand); color:#fff; border:0; padding:.55rem .9rem; border-radius:12px; cursor:pointer; }
     .btn.outline { background:transparent; color:var(--brand); border:1px solid var(--brand); }
     .btn.light { background:#e5edff; color:var(--brand); }
     .btn.danger { background:var(--bad); }
-    .input, select { padding:.55rem .65rem; border:1px solid #e5e7eb; border-radius:10px; background:#fff; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:.75rem; }
-    .pill { display:inline-block; padding:.2rem .5rem; border-radius:999px; font-size:.75rem; border:1px solid #e5e7eb; background:#fff; }
-    .pill.ok { border-color:var(--ok); color:var(--ok); }
-    .pill.warn { border-color:var(--warn); color:var(--warn); }
-    .pill.bad { border-color:var(--bad); color:var(--bad); }
-    .pill.gray { border-color:#9ca3af; color:#6b7280; }
+    .input, select { padding:.55rem .65rem; border:1px solid var(--line); border-radius:10px; background:#fff; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:.75rem; }
+    .pill { display:inline-block; padding:.2rem .5rem; border-radius:999px; font-size:.75rem; border:1px solid var(--line); background:#fff; }
+    .pill.ok{ border-color:var(--ok); color:var(--ok); } .pill.warn{ border-color:var(--warn); color:var(--warn); }
+    .pill.bad{ border-color:var(--bad); color:var(--bad); } .pill.gray{ border-color:#9ca3af; color:#6b7280; }
     nav { display:flex; gap:.5rem; }
     main { padding:1rem; max-width:1100px; margin:0 auto; display:grid; gap:1rem; }
     .muted { color:var(--muted); }
     table { width:100%; border-collapse:collapse; }
-    th, td { padding:.5rem; border-bottom:1px solid #e5e7eb; text-align:left; }
+    th, td { padding:.5rem; border-bottom:1px solid var(--line); text-align:left; }
     .section-title { margin:.25rem 0 .25rem; font-size:.95rem; color:#374151; }
     .thbtn { background:transparent; border:0; cursor:pointer; font:inherit; padding:0; color:#111827; }
     .thbtn span { margin-left:.25rem; color:#6b7280; }
     tr.inactive { opacity:.55; }
-    td.namecell { display:flex; align-items:center; gap:.5rem; }
+    td.namecell { display:flex; align-items:center; gap:.5rem; font-weight:600; }
+    /* Header auth strip tidy */
+    #authBox { display:flex; gap:.5rem; align-items:center; margin-left:auto; }
+    #currentUser { max-width:45vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#374151; }
+
+    /* -------- Mobile (≤ 640px) -------- */
+    @media (max-width:640px){
+      header { gap:.5rem; padding:.5rem .75rem; }
+      nav { width:100%; order:1; flex-wrap:wrap; gap:.5rem; }
+      #authBox { width:100%; order:2; justify-content:flex-start; }
+      .btn { padding:.45rem .7rem; border-radius:10px; }
+      .grid { grid-template-columns:1fr; }
+      .card { padding:.75rem; }
+      .toolbar { gap:.5rem; }
+      /* Directory table → cards */
+      #view-elders table thead { display:none; }
+      #view-elders table, #view-elders tbody, #view-elders tr, #view-elders td { display:block; width:100%; }
+      #view-elders tbody tr { background:#fff; border:1px solid var(--line); border-radius:12px; padding:.5rem .75rem; margin:.75rem 0; }
+      #view-elders tbody td { display:flex; justify-content:space-between; align-items:center; border:0; padding:.35rem 0; }
+      #view-elders tbody td::before { content:attr(data-label); font-weight:600; color:#6b7280; margin-right:1rem; }
+      #view-elders tbody td.namecell { font-size:1rem; padding-bottom:.4rem; }
+      #view-elders tbody td.namecell::before { content:'Name'; }
+      #currentUser { max-width:60vw; }
+    }
   </style>
 </head>
 <body>
-  <header class="card">
+  <header class="card" style="border:none; border-radius:0">
     <h1>EQ Visit Tracker</h1>
     <nav>
       <button class="btn light" onclick="showView('next')">Next Up</button>
@@ -48,7 +73,7 @@
       <button class="btn light" onclick="showView('import')">Import</button>
     </nav>
     <div class="grow"></div>
-    <div id="authBox" style="display:flex;gap:.5rem;align-items:center">
+    <div id="authBox">
       <span id="currentUser" class="muted"></span>
       <input id="email" class="input" placeholder="Email" autocomplete="username">
       <input id="password" class="input" type="password" placeholder="Password" autocomplete="current-password">
@@ -59,6 +84,7 @@
   </header>
 
   <main>
+    <!-- NEXT UP -->
     <section id="view-next" class="card" style="display:none">
       <div class="toolbar">
         <input id="searchNext" class="input" placeholder="Search name/phone/email/address">
@@ -71,6 +97,7 @@
       <div id="nextGrid" class="grid"></div>
     </section>
 
+    <!-- DIRECTORY -->
     <section id="view-elders" class="card" style="display:none">
       <div class="toolbar">
         <input id="searchElders" class="input" placeholder="Search name/phone/address/email">
@@ -82,7 +109,8 @@
         <div class="grow"></div>
         <span id="eldersCount" class="muted"></span>
       </div>
-      <table>
+
+      <table class="responsive">
         <thead>
           <tr>
             <th><button class="thbtn" onclick="setSort('name')">Name <span id="sort-name"></span></button></th>
@@ -97,6 +125,7 @@
       </table>
     </section>
 
+    <!-- LOG -->
     <section id="view-log" class="card" style="display:none">
       <div class="toolbar">
         <select id="logElderSelect"></select>
@@ -115,6 +144,7 @@
       </div>
     </section>
 
+    <!-- IMPORT / EXPORT -->
     <section id="view-import" class="card" style="display:none">
       <div class="section-title">Import Elders CSV (see template)</div>
       <input type="file" id="csvFile" accept=".csv">
@@ -134,6 +164,7 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script type="module">
+    /* ---------- Firebase (v10 modular) ---------- */
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import {
       getAuth, onAuthStateChanged,
@@ -145,7 +176,6 @@
       onSnapshot, query, where, serverTimestamp, increment
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    // ---- Firebase config ----
     const FIREBASE_CONFIG = {
       apiKey: "AIzaSyCWhXRTryqXRoiRNBSFrWiB-RzmYJ-TQXM",
       authDomain: "southpass-elders-visit-tracker.firebaseapp.com",
@@ -155,36 +185,29 @@
       appId: "1:736973707480:web:0bb5ead0d5b43d55bb9fad",
       measurementId: "G-JQKNSH8CTB"
     };
-    console.log('Using Firebase API key:', FIREBASE_CONFIG.apiKey);
-
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=1'));
     }
-
     const app = initializeApp(FIREBASE_CONFIG);
-    const db = initializeFirestore(app, {
-      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-    });
+    const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
     const auth = getAuth(app);
 
-    // State
+    /* ---------- State & helpers ---------- */
     let unsubElders = null, unsubVisits = null;
     let currentUser = null;
     const elders = new Map();
     const visits = [];
 
-    // Helpers
-    const q = (id)=>document.getElementById(id);
-    const cleanPhone = (s)=> (s||'').replace(/\D/g,'');
-    const norm = (s)=> (s||'').toString().trim().toLowerCase();
-    const fmtDate = (ts)=> { if (!ts) return '—'; const d = ts?.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString(); };
-    const daysSince = (ts)=> { if (!ts) return null; const d = ts?.toDate ? ts.toDate() : new Date(ts); return Math.floor((Date.now()-d.getTime())/86400000); };
-    const asMs = (t)=> t ? (t.toDate ? t.toDate().getTime() : new Date(t).getTime()) : 0;
+    const q = id => document.getElementById(id);
+    const cleanPhone = s => (s||'').replace(/\D/g,'');
+    const norm = s => (s||'').toString().trim().toLowerCase();
+    const fmtDate = ts => { if (!ts) return '—'; const d = ts?.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString(); };
+    const daysSince = ts => { if (!ts) return null; const d = ts?.toDate ? ts.toDate() : new Date(ts); return Math.floor((Date.now()-d.getTime())/86400000); };
+    const asMs = t => t ? (t.toDate ? t.toDate().getTime() : new Date(t).getTime()) : 0;
     const maxDate = (a,b)=> asMs(a) >= asMs(b) ? a : b;
     const hash = (str)=>{ let h=5381; for (let i=0;i<str.length;i++) h=((h<<5)+h)^str.charCodeAt(i); return 'k_'+(h>>>0).toString(36); };
     const collator = new Intl.Collator(undefined, { sensitivity:'base', numeric:true });
-
-    function startOfYear(d=new Date()){ return new Date(d.getFullYear(),0,1,0,0,0,0); }
+    const startOfYear = (d=new Date()) => new Date(d.getFullYear(),0,1,0,0,0,0);
 
     function updateAuthUI(user){
       const signedOut = !user;
@@ -194,7 +217,7 @@
       if (user){ q('email').value = ''; q('password').value = ''; }
     }
 
-    const SETTINGS = { W_DAYS: 0.2, W_ATTEMPTS: 5, BONUS_NEVER: 30, PENALTY_RECENT_CONTACT: -20, COOLDOWN_DAYS: 14 };
+    const SETTINGS = { W_DAYS:.2, W_ATTEMPTS:5, BONUS_NEVER:30, PENALTY_RECENT_CONTACT:-20, COOLDOWN_DAYS:14 };
     function nextUpScore(e){
       if (e.active === false || e.doNotText) return -999;
       const days = e.lastVisited ? daysSince(e.lastVisited) : null;
@@ -204,8 +227,10 @@
       const recentPenalty = (lcd !== null && lcd < SETTINGS.COOLDOWN_DAYS) ? SETTINGS.PENALTY_RECENT_CONTACT : 0;
       return daysScore + attemptsScore + recentPenalty;
     }
+    const smsBodyFor = (eName) =>
+      `Hey ${eName}, the elders quorum presidency would love to drop in and say hi Wednesday around 7:00. Would that work for you?`;
 
-    function userCol(path){ if (!currentUser) throw new Error('Not signed in'); return collection(db, 'users', currentUser.uid, path); }
+    const userCol = path => { if (!currentUser) throw new Error('Not signed in'); return collection(db,'users',currentUser.uid,path); };
 
     function subscribeData(){
       unsubElders = onSnapshot(userCol('elders'), (snap)=>{
@@ -223,7 +248,7 @@
     }
     function unsubscribeData(){ if (unsubElders) unsubElders(); if (unsubVisits) unsubVisits(); }
 
-    // Auth
+    /* ---------- Auth ---------- */
     onAuthStateChanged(auth, (user)=>{
       currentUser = user;
       updateAuthUI(user);
@@ -233,11 +258,8 @@
     window.create = async ()=>{ try{ await createUserWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim()); }catch(e){ alert('Create failed: '+(e.message||e.code)); } };
     window.signOut = async ()=>{ try{ await signOut(auth); }catch(e){ alert('Sign-out failed: '+(e.message||e.code)); } };
 
-    // ---------- Sorting & Search ----------
-    let sortBy = 'name', sortDir = 'asc'; // default A→Z
-    const nameKey  = (e)=> `${(e.lastName||'').trim().toLowerCase()}|${(e.preferredName||'').trim().toLowerCase()}`;
-    const phoneKey = (e)=> cleanPhone(e.phone||'');
-
+    /* ---------- Sorting & Search ---------- */
+    let sortBy='name', sortDir='asc';
     window.setSort = (key)=>{
       if (sortBy === key) sortDir = (sortDir==='asc' ? 'desc' : 'asc');
       else { sortBy = key; sortDir = (key==='visited' ? 'desc' : 'asc'); }
@@ -250,13 +272,11 @@
         el.textContent = (sortBy===k) ? (sortDir==='asc' ? '▲' : '▼') : '';
       });
     }
-    function filterByTokens(e, tokens){
+    const filterByTokens = (e, tokens)=>{
       if (!tokens.length) return true;
       const hay = (norm(e.preferredName)+' '+norm(e.lastName)+' '+norm(e.email)+' '+norm(e.address)+' '+cleanPhone(e.phone||''));
       return tokens.every(t => hay.includes(t));
-    }
-    window.renderNext = renderNext;
-    window.renderElders = renderElders;
+    };
 
     const wireSearch = () => {
       q('btnSearchElders')?.addEventListener('click', ()=>renderElders());
@@ -269,7 +289,7 @@
       q('searchNext')?.addEventListener('input', ()=>renderNext());
     };
 
-    // ---------- Counters ----------
+    /* ---------- Counters ---------- */
     function updateCounters(){
       const all = Array.from(elders.values());
       const active = all.filter(e=>e.active!==false);
@@ -279,12 +299,11 @@
       const ec = q('eldersCount'); if (ec) ec.textContent = `Total: ${all.length} (${active.length} active)`;
     }
 
-    // UI
-    window.showView = (name)=> {
+    /* ---------- UI render ---------- */
+    window.showView = (name)=>{
       ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none');
       if (name==='log') fillLogSelect();
-      updateSortArrows();
-      updateCounters();
+      updateSortArrows(); updateCounters(); window.scrollTo({top:0, behavior:'smooth'});
     };
     function renderAll(){ renderNext(); renderElders(); fillLogSelect(); updateSortArrows(); updateCounters(); }
 
@@ -300,11 +319,12 @@
         const ds = e.lastVisited ? daysSince(e.lastVisited) : null;
         const status = ds === null ? 'warn' : (ds >= 30 ? 'bad' : (ds >= 14 ? 'warn' : 'ok'));
         const diff = ds === null ? 'Never' : (ds + 'd');
-        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, this is the Elders Quorum Presidency. Could we stop by Wednesday evening for a short visit?`)}`;
+        const name = (e.preferredName || e.lastName || 'there');
+        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(smsBodyFor(name))}`;
         return `
           <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center">
-              <div><b>${(e.preferredName||'') + ' ' + (e.lastName||'')}</b></div>
+              <div style="font-weight:700">${(e.preferredName||'') + ' ' + (e.lastName||'')}</div>
               <span class="pill ${status}">${diff}</span>
             </div>
             <div class="muted" style="margin:.25rem 0">${e.phone||''}</div>
@@ -326,34 +346,28 @@
         .filter(e => (!hideInactive || e.active!==false))
         .filter(e => filterByTokens(e, tokens));
 
-      // deterministic sorting
       const dir = (sortDir==='asc') ? 1 : -1;
-      arr.sort((a,b)=>{
-        switch (sortBy) {
-          case 'phone':
-            return collator.compare(phoneKey(a), phoneKey(b)) * dir;
-          case 'visited':
-            return (asMs(a.lastVisited) - asMs(b.lastVisited)) * dir;
-          case 'attempts':
-            return ((a.attemptsSinceLastVisit||0) - (b.attemptsSinceLastVisit||0)) * dir;
-          case 'name':
-          default:
-            return collator.compare(nameKey(a), nameKey(b)) * dir;
-        }
-      });
+      const cmpName = (a,b)=> (collator.compare(a.lastName||'', b.lastName||'') || collator.compare(a.preferredName||'', b.preferredName||'')) * dir;
+      const cmpPhone = (a,b)=> collator.compare(cleanPhone(a.phone||''), cleanPhone(b.phone||'')) * dir;
+      const cmpVisited = (a,b)=> (asMs(a.lastVisited) - asMs(b.lastVisited)) * dir;
+      const cmpAttempts = (a,b)=> ((a.attemptsSinceLastVisit||0) - (b.attemptsSinceLastVisit||0)) * dir;
+      const cmps = { name:cmpName, phone:cmpPhone, visited:cmpVisited, attempts:cmpAttempts };
+      arr.sort(cmps[sortBy] || cmpName);
 
       tb.innerHTML = arr.map(e=>{
-        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, could we stop by Wednesday evening?`)}`;
         const inactive = e.active===false;
         const statusPill = inactive ? `<span class="pill gray">Inactive</span>` : `<span class="pill ok">Active</span>`;
         const archiveLabel = inactive ? 'Unarchive' : 'Archive';
+        const name = (e.preferredName || e.lastName || 'there');
+        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(smsBodyFor(name))}`;
+        const telLink = e.phone ? `<a href="tel:+1${cleanPhone(e.phone)}">${e.phone}</a>` : '';
         return `<tr class="${inactive?'inactive':''}">
-          <td class="namecell">${(e.preferredName||'') + ' ' + (e.lastName||'')}</td>
-          <td>${e.phone||''}</td>
-          <td>${fmtDate(e.lastVisited)}</td>
-          <td>${e.attemptsSinceLastVisit||0}</td>
-          <td>${statusPill}</td>
-          <td>
+          <td class="namecell" data-label="Name">${(e.preferredName||'') + ' ' + (e.lastName||'')}</td>
+          <td data-label="Phone">${telLink || ''}</td>
+          <td data-label="Last visited">${fmtDate(e.lastVisited)}</td>
+          <td data-label="Attempts">${e.attemptsSinceLastVisit||0}</td>
+          <td data-label="Status">${statusPill}</td>
+          <td data-label="Actions">
             <a class="btn outline" href="${smsUrl}">Text</a>
             <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
             <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
@@ -362,18 +376,17 @@
         </tr>`;
       }).join('');
 
-      updateSortArrows();
-      updateCounters();
+      updateSortArrows(); updateCounters();
     }
 
     function fillLogSelect(){
       const sel = q('logElderSelect');
-      const arr = Array.from(elders.values()).filter(e=>e.active!==false).sort((a,b)=>collator.compare((a.lastName||''), (b.lastName||'')));
+      const arr = Array.from(elders.values()).filter(e=>e.active!==false).sort((a,b)=>collator.compare(a.lastName||'', b.lastName||''));
       sel.innerHTML = arr.map(e=>`<option value="${e.id}">${(e.preferredName||'')+' '+(e.lastName||'')}</option>`).join('');
       if (!q('logDate').value) q('logDate').valueAsDate = new Date();
     }
 
-    // Save visit
+    /* ---------- Log / actions ---------- */
     window.saveVisit = async ()=>{
       const elderId = q('logElderSelect').value;
       const dateStr = q('logDate').value;
@@ -445,15 +458,11 @@
       }
     };
 
-    // ---------- Canonical keys (no householdId) ----------
-    const keyFromDoc = (e) => [
-      cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||''))
-    ].join('|');
-    const keyFromRow = (r) => [
-      cleanPhone(r.Phone||r.phone||''), norm(r.Email||r.email||''), norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||''))
-    ].join('|');
+    /* ---------- Keys (no householdId) ---------- */
+    const keyFromDoc = (e) => [ cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||'')) ].join('|');
+    const keyFromRow = (r) => [ cleanPhone(r.Phone||r.phone||''), norm(r.Email||r.email||''), norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||'')) ].join('|');
 
-    // ---------- Export backup ----------
+    /* ---------- Export backup / CSV ---------- */
     window.exportBackup = async ()=>{
       const [es, vs] = await Promise.all([ getDocs(userCol('elders')), getDocs(userCol('visits')) ]);
       const data = {
@@ -464,25 +473,17 @@
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'eq-visit-backup.json'; a.click(); URL.revokeObjectURL(a.href);
     };
-
-    // ---------- Export CSV ----------
     window.exportCsv = async ()=>{
       const snap = await getDocs(userCol('elders'));
       const rows = snap.docs.map(d=>{
         const e = { id:d.id, ...d.data() };
         const toIso = (t)=> t ? (t.toDate ? t.toDate().toISOString().slice(0,10) : new Date(t).toISOString().slice(0,10)) : '';
         return {
-          PreferredName: e.preferredName || '',
-          LastName:      e.lastName || '',
-          Phone:         e.phone || '',
-          Email:         e.email || '',
-          Address:       e.address || '',
-          DoNotText:     e.doNotText ? 'Yes' : 'No',
-          Active:        e.active!==false ? 'Yes' : 'No',
-          LastVisited:   toIso(e.lastVisited),
-          LastContacted: toIso(e.lastContacted),
-          Attempts:      e.attemptsSinceLastVisit || 0,
-          Id:            e.id
+          PreferredName: e.preferredName || '', LastName: e.lastName || '',
+          Phone: e.phone || '', Email: e.email || '', Address: e.address || '',
+          DoNotText: e.doNotText ? 'Yes' : 'No', Active: e.active!==false ? 'Yes' : 'No',
+          LastVisited: toIso(e.lastVisited), LastContacted: toIso(e.lastContacted),
+          Attempts: e.attemptsSinceLastVisit || 0, Id: e.id
         };
       });
       const csv = Papa.unparse(rows);
@@ -491,14 +492,13 @@
       a.href = URL.createObjectURL(blob); a.download = 'elders_export.csv'; a.click(); URL.revokeObjectURL(a.href);
     };
 
-    // ---------- Import (idempotent) ----------
+    /* ---------- Import (idempotent) ---------- */
     function parseCsv(file){
       return new Promise((resolve, reject)=>{
         Papa.parse(file, { header:true, skipEmptyLines:true,
           complete: (res)=>resolve(res.data), error: reject });
       });
     }
-
     window.importCsv = async ()=>{
       const file = q('csvFile').files[0];
       if (!file) return alert('Choose a CSV file.');
@@ -512,7 +512,6 @@
       });
 
       const seenKeys = new Set();
-
       for (const r of rows){
         const key = keyFromRow(r);
         seenKeys.add(key);
@@ -532,13 +531,12 @@
         if (match){
           await updateDoc(doc(db,'users',currentUser.uid,'elders',match.id), payload);
         } else {
-          const newId = hash(key); // deterministic id → idempotent
+          const newId = hash(key);
           await setDoc(doc(db,'users',currentUser.uid,'elders',newId), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 }, { merge:true });
           existingByKey.set(key, { id:newId, ...payload });
         }
       }
 
-      // Mark missing as inactive (keep history)
       for (const [key, e] of existingByKey){
         if (!seenKeys.has(key)){
           await updateDoc(doc(db,'users',currentUser.uid,'elders',e.id), { active:false });
@@ -547,7 +545,7 @@
       alert('Import complete (idempotent).');
     };
 
-    // ---------- Fix duplicates already in DB ----------
+    /* ---------- Fix duplicates already in DB ---------- */
     window.fixDuplicates = async ()=>{
       if (!confirm('Merge duplicates (preserve visit history)?')) return;
       const uid = currentUser?.uid; if (!uid) return alert('Sign in first.');
@@ -555,42 +553,25 @@
       const es = await getDocs(userCol('elders'));
       const items = es.docs.map(d=>({ id:d.id, ...d.data() }));
 
-      // Union-Find clustering by phone, email, and full name
-      const find = (p, x)=> (p[x]===x ? x : (p[x]=find(p, p[x])));
-      const unite = (p, a, b)=>{ a=find(p,a); b=find(p,b); if (a!==b) p[b]=a; };
+      const find=(p,x)=> (p[x]===x ? x : (p[x]=find(p,p[x])));
+      const unite=(p,a,b)=>{ a=find(p,a); b=find(p,b); if(a!==b) p[b]=a; };
 
       const parent = {}; items.forEach(e=>parent[e.id]=e.id);
-      const mapify = (getter)=> {
+      const mapify = getter => {
         const m = new Map();
-        items.forEach(e=>{
-          const k = getter(e);
-          if (!k) return;
-          if (!m.has(k)) m.set(k, []);
-          m.get(k).push(e.id);
-        });
+        items.forEach(e=>{ const k=getter(e); if(!k) return; if(!m.has(k)) m.set(k,[]); m.get(k).push(e.id); });
         return m;
       };
-
       const byPhone = mapify(e=>cleanPhone(e.phone||''));
       const byEmail = mapify(e=>norm(e.email||''));
       const byName  = mapify(e=>norm((e.preferredName||'')+'|'+(e.lastName||'')));
-
-      ;[byPhone, byEmail, byName].forEach(map=>{
-        map.forEach(ids=>{
-          for (let i=1;i<ids.length;i++) unite(parent, ids[0], ids[i]);
-        });
-      });
+      [byPhone,byEmail,byName].forEach(map=>{ map.forEach(ids=>{ for(let i=1;i<ids.length;i++) unite(parent, ids[0], ids[i]); }); });
 
       const clusters = new Map();
-      items.forEach(e=>{
-        const r = find(parent, e.id);
-        if (!clusters.has(r)) clusters.set(r, []);
-        clusters.get(r).push(e);
-      });
+      items.forEach(e=>{ const r=find(parent,e.id); if(!clusters.has(r)) clusters.set(r,[]); clusters.get(r).push(e); });
 
       let mergedCount = 0;
-
-      const score = (e)=> (e.email?1:0)+(e.phone?1:0)+(e.address?1:0)+(e.active!==false?1:0)+(e.lastVisited?2:0)+(e.lastContacted?1:0)+((e.attemptsSinceLastVisit||0)>0?1:0);
+      const score = e => (e.email?1:0)+(e.phone?1:0)+(e.address?1:0)+(e.active!==false?1:0)+(e.lastVisited?2:0)+(e.lastContacted?1:0)+((e.attemptsSinceLastVisit||0)>0?1:0);
 
       for (const [, group] of clusters){
         if (group.length <= 1) continue;
@@ -622,27 +603,14 @@
             active: (keep.active!==false && dup.active!==false)
           };
           await updateDoc(doc(db,'users',uid,'elders',keep.id), merged);
-
           await deleteDoc(doc(db,'users',uid,'elders',dup.id));
           mergedCount++;
         }
       }
-
       alert(`Fixed ${mergedCount} duplicate record(s).`);
     };
 
-    window.pickThisWeek = async ()=>{
-      const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText);
-      arr.forEach(e => e._score = nextUpScore(e));
-      arr.sort((a,b)=> b._score - a._score);
-      if (!arr.length) return alert('No eligible elders.');
-      const chosen = arr[0];
-      const monday = (() => { const x=new Date(); const day=x.getDay(); const diff=x.getDate()-day+(day==0?-6:1); x.setDate(diff); x.setHours(0,0,0,0); return x; })();
-      await addDoc(userCol('schedule'), { weekOf:monday, elderId:chosen.id, elderName:(chosen.preferredName||'')+' '+(chosen.lastName||''), createdAt:new Date(), status:'Planned' });
-      alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||'' ));
-    };
-
-    // Initial view + wire search inputs
+    /* ---------- Start ---------- */
     window.showView('next');
     wireSearch();
   </script>
