@@ -45,8 +45,8 @@
     <div class="grow"></div>
     <div id="authBox">
       <span id="currentUser" class="muted"></span>
-      <input id="email" class="input" placeholder="Email">
-      <input id="password" class="input" type="password" placeholder="Password">
+      <input id="email" class="input" placeholder="Email" autocomplete="username">
+      <input id="password" class="input" type="password" placeholder="Password" autocomplete="current-password">
       <button class="btn" onclick="signIn()">Sign in</button>
       <button class="btn outline" onclick="create()">Create</button>
       <button class="btn danger" onclick="signOut()" style="display:none" id="logoutBtn">Sign out</button>
@@ -105,7 +105,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-  <!-- EVERYTHING below is one module: imports + app code -->
+  <!-- Everything below is one module: imports + app code -->
   <script type="module">
     // --- Imports (modular SDK) ---
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
@@ -119,9 +119,9 @@
       serverTimestamp, increment
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    // --- Config ---
+    // --- Config (YOUR values from Firebase Console) ---
     const FIREBASE_CONFIG = {
-      apiKey: "AZzaSyCWhXRTryqXRoiRNB5FrWiB-RzmYJ-TQXM",
+      apiKey: "AIzaSyCWhXRTryqXRoiRNB5FrWiB-RzmYJ-TQXM",
       authDomain: "southpass-elders-visit-tracker.firebaseapp.com",
       projectId: "southpass-elders-visit-tracker",
       storageBucket: "southpass-elders-visit-tracker.firebasestorage.app",
@@ -191,7 +191,7 @@
       if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length=0; renderAll(); }
     });
 
-    // Expose click handlers on window (because of inline onclick)
+    // Click handlers (global because of inline onclick)
     window.signIn = async ()=>{
       const email = q('email').value.trim();
       const password = q('password').value.trim();
