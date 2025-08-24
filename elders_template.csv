@@ -1,0 +1,4 @@
+PreferredName,LastName,Phone,Email,Address,HouseholdId,DoNotText
+John,Doe,801-555-1234,john@example.com,123 Main St, H1,No
+Jane,Smith,385-111-2222,jane@example.com,45 Oak Ave, H2,No
+Mark,Johnson,8015559999,,789 Birch Rd, H3,No
