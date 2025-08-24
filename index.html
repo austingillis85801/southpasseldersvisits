@@ -65,7 +65,7 @@
 
     <section id="view-elders" class="card" style="display:none">
       <div class="toolbar">
-        <input id="searchElders" class="input" placeholder="Search name/phone/address" oninput="renderElders()">
+        <input id="searchElders" class="input" placeholder="Search name/phone/address/email" oninput="renderElders()">
         <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
       </div>
       <table>
@@ -95,32 +95,34 @@
     <section id="view-import" class="card" style="display:none">
       <div class="section-title">Import Elders CSV (see template)</div>
       <input type="file" id="csvFile" accept=".csv">
-      <div style="margin-top:.5rem">
+      <div style="margin-top:.5rem; display:flex; gap:.5rem; flex-wrap:wrap">
         <button class="btn" onclick="importCsv()">Import &amp; Dedupe</button>
+        <button class="btn outline" onclick="exportBackup()">Export backup (JSON)</button>
+        <button class="btn danger" onclick="fixDuplicates()">Fix duplicates</button>
         <a class="btn outline" href="elders_template.csv" download>Download template</a>
       </div>
-      <p class="muted" style="margin-top:.5rem">Keys used for dedupe (in order): normalized phone, email, name+household. Records not present in the new CSV will be set <b>inactive</b> (history preserved).</p>
+      <p class="muted" style="margin-top:.5rem">
+        Import is idempotent: same CSV can be re-imported without creating duplicates.
+        Records missing from the new CSV are marked <b>inactive</b>. Visit history is preserved.
+      </p>
     </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-  <!-- EVERYTHING below runs as one ES module -->
   <script type="module">
-    // --- Firebase imports ---
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import {
       getAuth, onAuthStateChanged,
       signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
     import {
-      // new cache API (removes the deprecation warning)
       initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-      collection, doc, addDoc, updateDoc, onSnapshot,
-      serverTimestamp, increment
+      collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDocs,
+      onSnapshot, query, where, serverTimestamp, increment, writeBatch
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    // --- Your Firebase config (from the Console) ---
+    // --- Firebase config (note: corrected key) ---
     const FIREBASE_CONFIG = {
       apiKey: "AIzaSyCWhXRTryqXRoiRNBSFrWiB-RzmYJ-TQXM",
       authDomain: "southpass-elders-visit-tracker.firebaseapp.com",
@@ -130,40 +132,36 @@
       appId: "1:736973707480:web:0bb5ead0d5b43d55bb9fad",
       measurementId: "G-JQKNSH8CTB"
     };
-
-    // (optional) quick visibility while debugging
     window._cfg = FIREBASE_CONFIG;
     console.log('Using Firebase API key:', FIREBASE_CONFIG.apiKey);
 
-    // --- PWA service worker ---
+    // SW
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=1'));
     }
 
-    // --- Firebase init ---
+    // Firebase init
     const app = initializeApp(FIREBASE_CONFIG);
-
-    // use the new local cache (no console warning)
     const db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
-      })
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
     });
-
     const auth = getAuth(app);
 
-    // --- State ---
-    let unsubElders = null;
-    let unsubVisits = null;
+    // State
+    let unsubElders = null, unsubVisits = null;
     let currentUser = null;
     const elders = new Map();
     const visits = [];
 
-    // --- Helpers ---
+    // Helpers
     const q = (id)=>document.getElementById(id);
     const cleanPhone = (s)=> (s||'').replace(/\D/g,'');
+    const norm = (s)=> (s||'').toString().trim().toLowerCase();
     const fmtDate = (ts)=> { if (!ts) return '—'; const d = ts?.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString(); };
     const daysSince = (ts)=> { if (!ts) return null; const d = ts?.toDate ? ts.toDate() : new Date(ts); return Math.floor((Date.now()-d.getTime())/86400000); };
+    const asMs = (t)=> t ? (t.toDate ? t.toDate().getTime() : new Date(t).getTime()) : 0;
+    const maxDate = (a,b)=> asMs(a) >= asMs(b) ? a : b;
+    const hash = (str)=>{ let h=5381; for (let i=0;i<str.length;i++) h=((h<<5)+h)^str.charCodeAt(i); return 'k_'+(h>>>0).toString(36); };
 
     function updateAuthUI(user){
       const signedOut = !user;
@@ -202,44 +200,36 @@
     }
     function unsubscribeData(){ if (unsubElders) unsubElders(); if (unsubVisits) unsubVisits(); }
 
-    // --- Auth wiring ---
+    // Auth
     onAuthStateChanged(auth, (user)=>{
       currentUser = user;
       updateAuthUI(user);
       if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length=0; renderAll(); }
     });
 
-    // Global click handlers (because of inline onclick)
-    window.signIn = async ()=>{
-      const email = q('email').value.trim();
-      const password = q('password').value.trim();
-      try { await signInWithEmailAndPassword(auth, email, password); }
-      catch (err) { console.error('signIn error:', err); alert('Sign-in failed: ' + (err.message || err.code || err)); }
-    };
-    window.create = async ()=>{
-      const email = q('email').value.trim();
-      const password = q('password').value.trim();
-      try { await createUserWithEmailAndPassword(auth, email, password); }
-      catch (err) { console.error('create error:', err); alert('Create account failed: ' + (err.message || err.code || err)); }
-    };
-    window.signOut = async ()=>{
-      try { await signOut(auth); }
-      catch (err) { console.error('signOut error:', err); alert('Sign-out failed: ' + (err.message || err.code || err)); }
-    };
+    window.signIn = async ()=>{ try{
+      await signInWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim());
+    }catch(e){ console.error('signIn error:', e); alert('Sign-in failed: '+(e.message||e.code)); } };
+    window.create = async ()=>{ try{
+      await createUserWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim());
+    }catch(e){ console.error('create error:', e); alert('Create failed: '+(e.message||e.code)); } };
+    window.signOut = async ()=>{ try{ await signOut(auth); }catch(e){ alert('Sign-out failed: '+(e.message||e.code)); } };
 
-    // --- UI ---
+    // UI
     window.showView = (name)=> { ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none'); if (name==='log') fillLogSelect(); };
     function renderAll(){ renderNext(); renderElders(); fillLogSelect(); }
 
     function renderNext(){
       const grid = q('nextGrid');
-      const term = q('searchNext').value.trim().toLowerCase();
+      const term = norm(q('searchNext').value);
+      const tokens = term.split(/\s+/).filter(Boolean);
       const arr = Array.from(elders.values()).map(e=>({ ...e, _score: nextUpScore(e) }))
-        .filter(e=> e._score > -999 && (!term ||
-          (e.preferredName||'').toLowerCase().includes(term) ||
-          (e.lastName||'').toLowerCase().includes(term) ||
-          (e.phone||'').includes(term)
-        ))
+        .filter(e=>{
+          if (e._score <= -999) return false;
+          if (!tokens.length) return true;
+          const hay = (norm(e.preferredName)+' '+norm(e.lastName)+' '+norm(e.email)+' '+norm(e.address)+' '+cleanPhone(e.phone||''));
+          return tokens.every(t => hay.includes(t));
+        })
         .sort((a,b)=> b._score - a._score)
         .slice(0,18);
 
@@ -266,15 +256,13 @@
 
     function renderElders(){
       const tb = q('eldersTbody');
-      const term = q('searchElders').value.trim().toLowerCase();
+      const tokens = norm(q('searchElders').value).split(/\s+/).filter(Boolean);
       let arr = Array.from(elders.values());
-      if (term) {
-        arr = arr.filter(e =>
-          (e.preferredName||'').toLowerCase().includes(term) ||
-          (e.lastName||'').toLowerCase().includes(term) ||
-          (e.address||'').toLowerCase().includes(term) ||
-          (e.phone||'').includes(term)
-        );
+      if (tokens.length) {
+        arr = arr.filter(e => {
+          const hay = (norm(e.preferredName)+' '+norm(e.lastName)+' '+norm(e.email)+' '+norm(e.address)+' '+cleanPhone(e.phone||''));
+          return tokens.every(t => hay.includes(t));
+        });
       }
       arr.sort((a,b)=> (a.lastName||'').localeCompare(b.lastName||''));
       tb.innerHTML = arr.map(e=>{
@@ -301,6 +289,7 @@
       if (!q('logDate').value) q('logDate').valueAsDate = new Date();
     }
 
+    // Save visit
     window.saveVisit = async ()=>{
       const elderId = q('logElderSelect').value;
       const dateStr = q('logDate').value;
@@ -310,7 +299,6 @@
       if (!elderId || !dateStr) return alert('Pick elder and date');
       const visit = { elderId, visitDate: dateStr, outcome, visitors, notes, createdAt: new Date() };
       await addDoc(userCol('visits'), visit);
-
       const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
       const isVisited = (outcome === 'Visited' || outcome === 'Scheduled');
       await updateDoc(ref, {
@@ -324,11 +312,7 @@
 
     window.quickLogVisit = async (elderId)=>{
       const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
-      await updateDoc(ref, {
-        lastVisited: serverTimestamp(),
-        lastContacted: serverTimestamp(),
-        attemptsSinceLastVisit: 0
-      });
+      await updateDoc(ref, { lastVisited: serverTimestamp(), lastContacted: serverTimestamp(), attemptsSinceLastVisit: 0 });
       await addDoc(userCol('visits'), {
         elderId, visitDate: new Date().toISOString().slice(0,10),
         outcome: 'Visited', visitors: 'Presidency', notes:'(Quick log)', createdAt: new Date()
@@ -337,10 +321,7 @@
 
     window.noAnswer = async (elderId)=>{
       const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
-      await updateDoc(ref, {
-        lastContacted: serverTimestamp(),
-        attemptsSinceLastVisit: increment(1)
-      });
+      await updateDoc(ref, { lastContacted: serverTimestamp(), attemptsSinceLastVisit: increment(1) });
       await addDoc(userCol('visits'), {
         elderId, visitDate: new Date().toISOString().slice(0,10),
         outcome: 'No answer', visitors: 'Presidency', notes:'', createdAt: new Date()
@@ -370,52 +351,59 @@
       await updateDoc(ref, { preferredName, lastName, phone, doNotText });
     };
 
-    window.archiveElder = async (id)=>{
-      if (!confirm('Archive this elder (set inactive)?')) return;
-      const ref = doc(db, 'users', currentUser.uid, 'elders', id);
-      await updateDoc(ref, { active: false });
+    window.archiveElder = async (id)=>{ if (!confirm('Archive this elder (set inactive)?')) return;
+      await updateDoc(doc(db, 'users', currentUser.uid, 'elders', id), { active: false });
     };
 
-    // ---- CSV import with robust dedupe (preserves visit history) ----
+    // ---- Canonical key helpers (used for import & dedupe) ----
+    const keyFromDoc = (e) => [
+      cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||'')), norm(e.householdId||'')
+    ].join('|');
+
+    const keyFromRow = (r) => [
+      cleanPhone(r.Phone||r.phone||''), norm(r.Email||r.email||''), norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||'')), norm(r.HouseholdId||'')
+    ].join('|');
+
+    // ---- Export backup (elders + visits) ----
+    window.exportBackup = async ()=>{
+      const [es, vs] = await Promise.all([ getDocs(userCol('elders')), getDocs(userCol('visits')) ]);
+      const data = {
+        elders: es.docs.map(d=>({id:d.id,...d.data()})),
+        visits: vs.docs.map(d=>({id:d.id,...d.data()}))
+      };
+      const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'eq-visit-backup.json'; a.click(); URL.revokeObjectURL(a.href);
+    };
+
+    // ---- Idempotent CSV import (no duplicates) ----
     function parseCsv(file){
       return new Promise((resolve, reject)=>{
         Papa.parse(file, { header:true, skipEmptyLines:true,
           complete: (res)=>resolve(res.data), error: reject });
       });
     }
-    const norm = s => (s||'').toString().trim().toLowerCase();
-    const keyOf = r => [
-      (r.Phone||r.phone)? cleanPhone(r.Phone||r.phone) : '',
-      norm(r.Email||r.email),
-      norm((r.PreferredName||r.FirstName||'') + '|' + (r.LastName||'')),
-      norm(r.HouseholdId||'')
-    ].join('|');
 
     window.importCsv = async ()=>{
-      const file = document.getElementById('csvFile').files[0];
+      const file = q('csvFile').files[0];
       if (!file) return alert('Choose a CSV file.');
       const rows = await parseCsv(file);
 
-      // Build maps of existing elders for O(1) matching
-      const existing = Array.from(elders.values());
-      const byPhone = new Map(), byEmail = new Map(), byNameHH = new Map();
-      for (const e of existing){
-        const p = cleanPhone(e.phone||''); if (p) byPhone.set(p, e);
-        const em = norm(e.email); if (em) byEmail.set(em, e);
-        const nm = norm((e.preferredName||'')+'|'+(e.lastName||''))+'|'+norm(e.householdId||'');
-        byNameHH.set(nm, e);
-      }
+      // Build freshest map from Firestore (not just current snapshot)
+      const snap = await getDocs(userCol('elders'));
+      const existingByKey = new Map();
+      snap.forEach(d=>{
+        const e = {id:d.id, ...d.data()};
+        existingByKey.set(keyFromDoc(e), e);
+      });
 
       const seenKeys = new Set();
+
       for (const r of rows){
-        const phone = cleanPhone(r.Phone||r.phone||'');
-        const email = norm(r.Email||r.email);
-        const nameHH = norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||''))+'|'+norm(r.HouseholdId||'');
-        const key = keyOf(r);
+        const key = keyFromRow(r);
         seenKeys.add(key);
 
-        const match = byPhone.get(phone) || byEmail.get(email) || byNameHH.get(nameHH);
-
+        const phone = cleanPhone(r.Phone||r.phone||'');
         const payload = {
           preferredName: r.PreferredName || r.FirstName || '',
           lastName: r.LastName || '',
@@ -427,34 +415,68 @@
           active: true
         };
 
+        const match = existingByKey.get(key);
         if (match){
-          // Update existing doc (ID stays the same -> visit history preserved)
           await updateDoc(doc(db,'users',currentUser.uid,'elders',match.id), payload);
         } else {
-          // New elder
-          const ref = await addDoc(userCol('elders'), {
-            ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0
-          });
-          // Update maps so duplicates within the same CSV don’t create multiples
-          const created = { id: ref.id, ...payload };
-          if (phone) byPhone.set(phone, created);
-          if (email) byEmail.set(email, created);
-          byNameHH.set(nameHH, created);
+          // deterministic ID ensures re-imports hit same doc
+          const newId = hash(key);
+          await setDoc(doc(db,'users',currentUser.uid,'elders',newId), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 }, { merge: true });
+          existingByKey.set(key, { id:newId, ...payload });
         }
       }
 
-      // Mark any existing elders not present in the new CSV as inactive (keep history)
-      for (const e of existing){
-        const k = [
-          cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||'')), norm(e.householdId||'')
-        ].join('|');
-        if (!seenKeys.has(k)){
+      // Mark missing as inactive (keep history)
+      for (const [key, e] of existingByKey){
+        if (!seenKeys.has(key)){
           await updateDoc(doc(db,'users',currentUser.uid,'elders',e.id), { active:false });
         }
       }
-      alert('Import complete. Duplicates merged; history kept; new elders added; missing set inactive.');
+      alert('Import complete (idempotent). Duplicates prevented; history preserved.');
     };
 
+    // ---- Fix existing duplicates already in the DB ----
+    window.fixDuplicates = async ()=>{
+      if (!confirm('This will merge duplicates and keep visit history. Continue?')) return;
+      const uid = currentUser?.uid; if (!uid) return alert('Sign in first.');
+
+      const es = await getDocs(userCol('elders'));
+      const keepByKey = new Map();
+      const dups = [];
+
+      es.forEach(d=>{
+        const e = { id:d.id, ...d.data() };
+        const key = keyFromDoc(e);
+        if (keepByKey.has(key)) dups.push({ dup:e, keep: keepByKey.get(key) });
+        else keepByKey.set(key, e);
+      });
+
+      for (const {dup, keep} of dups){
+        // move visits that point to the duplicate
+        const vs = await getDocs(query(userCol('visits'), where('elderId','==', dup.id)));
+        for (const v of vs.docs){
+          await updateDoc(doc(db,'users',uid,'visits',v.id), { elderId: keep.id });
+        }
+
+        // merge a few useful fields onto the keeper
+        const merged = {
+          phone: keep.phone || dup.phone || '',
+          email: keep.email || dup.email || '',
+          address: keep.address || dup.address || '',
+          lastVisited: maxDate(keep.lastVisited, dup.lastVisited),
+          lastContacted: maxDate(keep.lastContacted, dup.lastContacted),
+          attemptsSinceLastVisit: Math.max(keep.attemptsSinceLastVisit||0, dup.attemptsSinceLastVisit||0),
+          doNotText: !!(keep.doNotText || dup.doNotText),
+          active: (keep.active!==false && dup.active!==false)
+        };
+        await updateDoc(doc(db,'users',uid,'elders',keep.id), merged);
+        await deleteDoc(doc(db,'users',uid,'elders',dup.id));
+      }
+
+      alert(`Fixed ${dups.length} duplicate record(s).`);
+    };
+
+    // Pick this week
     window.pickThisWeek = async ()=>{
       const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText);
       arr.forEach(e => e._score = nextUpScore(e));
