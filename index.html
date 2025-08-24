@@ -235,6 +235,9 @@
 
     // ---------- Sorting & Search ----------
     let sortBy = 'name', sortDir = 'asc'; // default A→Z
+    const nameKey  = (e)=> `${(e.lastName||'').trim().toLowerCase()}|${(e.preferredName||'').trim().toLowerCase()}`;
+    const phoneKey = (e)=> cleanPhone(e.phone||'');
+
     window.setSort = (key)=>{
       if (sortBy === key) sortDir = (sortDir==='asc' ? 'desc' : 'asc');
       else { sortBy = key; sortDir = (key==='visited' ? 'desc' : 'asc'); }
@@ -323,14 +326,21 @@
         .filter(e => (!hideInactive || e.active!==false))
         .filter(e => filterByTokens(e, tokens));
 
-      // sorting (collator for consistent A↔Z)
+      // deterministic sorting
       const dir = (sortDir==='asc') ? 1 : -1;
-      const cmpName = (a,b)=> (collator.compare(a.lastName||'', b.lastName||'') || collator.compare(a.preferredName||'', b.preferredName||'')) * dir;
-      const cmpPhone = (a,b)=> collator.compare(cleanPhone(a.phone||''), cleanPhone(b.phone||'')) * dir;
-      const cmpVisited = (a,b)=> (asMs(a.lastVisited) - asMs(b.lastVisited)) * dir;
-      const cmpAttempts = (a,b)=> ((a.attemptsSinceLastVisit||0) - (b.attemptsSinceLastVisit||0)) * dir;
-      const cmps = { name:cmpName, phone:cmpPhone, visited:cmpVisited, attempts:cmpAttempts };
-      arr.sort(cmps[sortBy] || cmpName);
+      arr.sort((a,b)=>{
+        switch (sortBy) {
+          case 'phone':
+            return collator.compare(phoneKey(a), phoneKey(b)) * dir;
+          case 'visited':
+            return (asMs(a.lastVisited) - asMs(b.lastVisited)) * dir;
+          case 'attempts':
+            return ((a.attemptsSinceLastVisit||0) - (b.attemptsSinceLastVisit||0)) * dir;
+          case 'name':
+          default:
+            return collator.compare(nameKey(a), nameKey(b)) * dir;
+        }
+      });
 
       tb.innerHTML = arr.map(e=>{
         const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(`Hi ${e.preferredName||e.lastName||'there'}, could we stop by Wednesday evening?`)}`;
@@ -358,7 +368,7 @@
 
     function fillLogSelect(){
       const sel = q('logElderSelect');
-      const arr = Array.from(elders.values()).filter(e=>e.active!==false).sort((a,b)=>collator.compare(a.lastName||'', b.lastName||''));
+      const arr = Array.from(elders.values()).filter(e=>e.active!==false).sort((a,b)=>collator.compare((a.lastName||''), (b.lastName||'')));
       sel.innerHTML = arr.map(e=>`<option value="${e.id}">${(e.preferredName||'')+' '+(e.lastName||'')}</option>`).join('');
       if (!q('logDate').value) q('logDate').valueAsDate = new Date();
     }
