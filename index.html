@@ -100,6 +100,13 @@
       <div class="toolbar">
         <input id="searchElders" class="input" placeholder="Search name/phone/address/email">
         <button class="btn outline" id="btnSearchElders">Search</button>
+        <!-- NEW: Sort dropdown (mobile-friendly) -->
+        <select id="sortSelect" class="input" title="Sort">
+          <option value="name">First name</option>
+          <option value="visited">Last visited</option>
+          <option value="attempts">Attempts</option>
+          <option value="phone">Phone</option>
+        </select>
         <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
         <label style="display:flex;align-items:center;gap:.35rem;margin-left:.5rem">
           <input type="checkbox" id="hideInactive" checked> Hide inactive
@@ -261,7 +268,7 @@
     window.signOut = async ()=>{ try{ await signOut(auth); }catch(e){ alert('Sign-out failed: '+(e.message||e.code)); } };
 
     /* ---------- Sorting & Search ---------- */
-    let sortBy='name', sortDir='asc';
+    let sortBy='name', sortDir='asc'; // default: first name, A→Z
     window.setSort = (key)=>{
       if (sortBy === key) sortDir = (sortDir==='asc' ? 'desc' : 'asc');
       else { sortBy = key; sortDir = (key==='visited' ? 'desc' : 'asc'); }
@@ -273,6 +280,8 @@
         if (!el) return;
         el.textContent = (sortBy===k) ? (sortDir==='asc' ? '▲' : '▼') : '';
       });
+      // keep the dropdown in sync
+      const ss = q('sortSelect'); if (ss) ss.value = sortBy;
     }
     const filterByTokens = (e, tokens)=>{
       if (!tokens.length) return true;
@@ -288,6 +297,13 @@
       q('btnSearchNext')?.addEventListener('click', ()=>renderNext());
       q('searchNext')?.addEventListener('keydown', e=>{ if(e.key==='Enter') renderNext(); });
       q('searchNext')?.addEventListener('input', ()=>renderNext());
+
+      // NEW: dropdown sorter
+      q('sortSelect')?.addEventListener('change', e=>{
+        sortBy = e.target.value;
+        sortDir = (sortBy === 'visited') ? 'desc' : 'asc';
+        renderElders();
+      });
     };
 
     /* ---------- Counters (ROLLING 12 MONTHS) ---------- */
@@ -348,7 +364,8 @@
         .filter(e => filterByTokens(e, tokens));
 
       const dir = (sortDir==='asc') ? 1 : -1;
-      const cmpName = (a,b)=> (collator.compare(a.lastName||'', b.lastName||'') || collator.compare(a.preferredName||'', b.preferredName||'')) * dir;
+      // UPDATED: First name (preferredName) primary, last name secondary
+      const cmpName = (a,b)=> (collator.compare(a.preferredName||'', b.preferredName||'') || collator.compare(a.lastName||'', b.lastName||'')) * dir;
       const cmpPhone = (a,b)=> collator.compare(cleanPhone(a.phone||''), cleanPhone(b.phone||'')) * dir;
       const cmpVisited = (a,b)=> (asMs(a.lastVisited) - asMs(b.lastVisited)) * dir;
       const cmpAttempts = (a,b)=> ((a.attemptsSinceLastVisit||0) - (b.attemptsSinceLastVisit||0)) * dir;
