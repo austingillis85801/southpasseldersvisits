@@ -40,6 +40,7 @@
     td.namecell { display:flex; align-items:center; gap:.5rem; font-weight:600; }
     #authBox { display:flex; gap:.5rem; align-items:center; margin-left:auto; }
     #currentUser { max-width:45vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#374151; }
+    .subtle { font-size:.85rem; color:#6b7280; }
 
     /* Mobile */
     @media (max-width:640px){
@@ -100,7 +101,6 @@
       <div class="toolbar">
         <input id="searchElders" class="input" placeholder="Search name/phone/address/email">
         <button class="btn outline" id="btnSearchElders">Search</button>
-        <!-- NEW: Sort dropdown (mobile-friendly) -->
         <select id="sortSelect" class="input" title="Sort">
           <option value="name">First name</option>
           <option value="visited">Last visited</option>
@@ -122,6 +122,7 @@
             <th><button class="thbtn" onclick="setSort('phone')">Phone <span id="sort-phone"></span></button></th>
             <th><button class="thbtn" onclick="setSort('visited')">Last visited <span id="sort-visited"></span></button></th>
             <th><button class="thbtn" onclick="setSort('attempts')">Attempts <span id="sort-attempts"></span></button></th>
+            <th>Asked</th>
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -212,8 +213,6 @@
     const maxDate = (a,b)=> asMs(a) >= asMs(b) ? a : b;
     const hash = (str)=>{ let h=5381; for (let i=0;i<str.length;i++) h=((h<<5)+h)^str.charCodeAt(i); return 'k_'+(h>>>0).toString(36); };
     const collator = new Intl.Collator(undefined, { sensitivity:'base', numeric:true });
-
-    // rolling-month helper
     const monthsAgo = (n)=>{ const d=new Date(); d.setMonth(d.getMonth()-n); d.setHours(0,0,0,0); return d; };
 
     function updateAuthUI(user){
@@ -224,18 +223,22 @@
       if (user){ q('email').value = ''; q('password').value = ''; }
     }
 
-    // Scoring: prioritize longest-since-visit; huge boost if never visited
-    const SETTINGS = { W_DAYS:.2, W_ATTEMPTS:5, BONUS_NEVER:120, PENALTY_RECENT_CONTACT:-20, COOLDOWN_DAYS:14 };
-    function nextUpScore(e){
-      if (e.active === false || e.doNotText) return -999;
-      if (!e.lastVisited) return SETTINGS.BONUS_NEVER + (e.attemptsSinceLastVisit||0)*SETTINGS.W_ATTEMPTS;
-      const days = daysSince(e.lastVisited);
-      const daysScore = days * SETTINGS.W_DAYS;
-      const attemptsScore = (e.attemptsSinceLastVisit || 0) * SETTINGS.W_ATTEMPTS;
-      const lcd = e.lastContacted ? daysSince(e.lastContacted) : null;
-      const recentPenalty = (lcd !== null && lcd < SETTINGS.COOLDOWN_DAYS) ? SETTINGS.PENALTY_RECENT_CONTACT : 0;
-      return daysScore + attemptsScore + recentPenalty;
-    }
+    // New: count texts in last 6 months + most recent text date
+    const texts6mInfo = (e)=>{
+      const cutoff = monthsAgo(6).getTime();
+      const arr = Array.isArray(e.textHistory) ? e.textHistory : [];
+      let count = 0, last = null;
+      for (const iso of arr){
+        const t = Date.parse(iso);
+        if (!isNaN(t)) {
+          if (t >= cutoff) count++;
+          if (!last || t > last) last = t;
+        }
+      }
+      return { count, lastDateMs: last };
+    };
+
+    // Message template
     const smsBodyFor = (name) =>
       `Hey ${name}, the elders quorum presidency would love to drop in and say hi Wednesday around 7:00. Would that work for you?`;
 
@@ -280,7 +283,6 @@
         if (!el) return;
         el.textContent = (sortBy===k) ? (sortDir==='asc' ? '▲' : '▼') : '';
       });
-      // keep the dropdown in sync
       const ss = q('sortSelect'); if (ss) ss.value = sortBy;
     }
     const filterByTokens = (e, tokens)=>{
@@ -298,7 +300,6 @@
       q('searchNext')?.addEventListener('keydown', e=>{ if(e.key==='Enter') renderNext(); });
       q('searchNext')?.addEventListener('input', ()=>renderNext());
 
-      // NEW: dropdown sorter
       q('sortSelect')?.addEventListener('change', e=>{
         sortBy = e.target.value;
         sortDir = (sortBy === 'visited') ? 'desc' : 'asc';
@@ -306,12 +307,49 @@
       });
     };
 
+    /* ---------- Queue settings (rolling 12m + texting cooldown) ---------- */
+    const SETTINGS = {
+      W_DAYS:.2, W_ATTEMPTS:5, BONUS_NEVER:120,
+      COOLDOWN_DAYS_TEXT:14,            // push back 14 days after a text
+      PENALTY_RECENT_TEXT:-40           // strong penalty if texted within cooldown window
+    };
+
+    function needVisitThisYear(e){
+      const threshold = monthsAgo(12).getTime();
+      const lv = asMs(e.lastVisited);
+      return !lv || lv < threshold;
+    }
+
+    function nextUpScore(e){
+      if (e.active === false || e.doNotText) return -999;
+
+      // Holdout if texted twice in the last 6 months
+      const tx = texts6mInfo(e);
+      if (tx.count >= 2) return -999;
+
+      const lvDays = e.lastVisited ? daysSince(e.lastVisited) : null;
+      const daysScore = (lvDays === null ? SETTINGS.BONUS_NEVER : lvDays * SETTINGS.W_DAYS);
+      const attemptsScore = (e.attemptsSinceLastVisit || 0) * SETTINGS.W_ATTEMPTS;
+
+      // Recent text penalty
+      let recentPenalty = 0;
+      if (tx.lastDateMs){
+        const daysSinceText = Math.floor((Date.now() - tx.lastDateMs)/86400000);
+        if (daysSinceText < SETTINGS.COOLDOWN_DAYS_TEXT) recentPenalty = SETTINGS.PENALTY_RECENT_TEXT;
+      }
+
+      // Prefer folks who still need a visit in rolling 12m
+      const needs = needVisitThisYear(e) ? 20 : 0; // small boost
+
+      return daysScore + attemptsScore + recentPenalty + needs;
+    }
+
     /* ---------- Counters (ROLLING 12 MONTHS) ---------- */
     function updateCounters(){
       const all = Array.from(elders.values());
       const active = all.filter(e=>e.active!==false);
-      const threshold = monthsAgo(12); // 12 months ago from today
-      const needVisit = active.filter(e => !e.lastVisited || asMs(e.lastVisited) < threshold.getTime()).length;
+      const threshold = monthsAgo(12).getTime();
+      const needVisit = active.filter(e => !e.lastVisited || asMs(e.lastVisited) < threshold).length;
       const yr = q('yearRemaining'); if (yr) yr.textContent = `Need visit (12m): ${needVisit}`;
       const ec = q('eldersCount'); if (ec) ec.textContent = `Total: ${all.length} (${active.length} active)`;
     }
@@ -336,8 +374,11 @@
         const ds = e.lastVisited ? daysSince(e.lastVisited) : null;
         const status = ds === null ? 'warn' : (ds >= 30 ? 'bad' : (ds >= 14 ? 'warn' : 'ok'));
         const diff = ds === null ? 'Never' : (ds + 'd');
+
+        const tx = texts6mInfo(e);
+        const askedTxt = tx.lastDateMs ? `Last text: ${new Date(tx.lastDateMs).toLocaleDateString()}${tx.count?` • ${tx.count}×/6m`:''}` : 'No texts yet';
         const name = (e.preferredName || e.lastName || 'there');
-        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(smsBodyFor(name))}`;
+
         return `
           <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center">
@@ -345,8 +386,9 @@
               <span class="pill ${status}">${diff}</span>
             </div>
             <div class="muted" style="margin:.25rem 0">${e.phone||''}</div>
-            <div style="display:flex; gap:.5rem; margin-top:.25rem">
-              <a class="btn outline" href="${smsUrl}">Text</a>
+            <div class="subtle">${askedTxt}</div>
+            <div style="display:flex; gap:.5rem; margin-top:.35rem">
+              <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
               <button class="btn" onclick="quickLogVisit('${e.id}')">Log now</button>
               <button class="btn outline" onclick="noAnswer('${e.id}')">No answer</button>
             </div>
@@ -364,7 +406,6 @@
         .filter(e => filterByTokens(e, tokens));
 
       const dir = (sortDir==='asc') ? 1 : -1;
-      // UPDATED: First name (preferredName) primary, last name secondary
       const cmpName = (a,b)=> (collator.compare(a.preferredName||'', b.preferredName||'') || collator.compare(a.lastName||'', b.lastName||'')) * dir;
       const cmpPhone = (a,b)=> collator.compare(cleanPhone(a.phone||''), cleanPhone(b.phone||'')) * dir;
       const cmpVisited = (a,b)=> (asMs(a.lastVisited) - asMs(b.lastVisited)) * dir;
@@ -377,16 +418,20 @@
         const statusPill = inactive ? `<span class="pill gray">Inactive</span>` : `<span class="pill ok">Active</span>`;
         const archiveLabel = inactive ? 'Unarchive' : 'Archive';
         const name = (e.preferredName || e.lastName || 'there');
-        const smsUrl = `sms:+1${cleanPhone(e.phone||'')}?&body=${encodeURIComponent(smsBodyFor(name))}`;
         const telLink = e.phone ? `<a href="tel:+1${cleanPhone(e.phone)}">${e.phone}</a>` : '';
+
+        const tx = texts6mInfo(e);
+        const askedCell = tx.lastDateMs ? `${new Date(tx.lastDateMs).toLocaleDateString()}${tx.count?` • ${tx.count}×/6m`:''}` : '—';
+
         return `<tr class="${inactive?'inactive':''}">
           <td class="namecell" data-label="Name">${(e.preferredName||'') + ' ' + (e.lastName||'')}</td>
           <td data-label="Phone">${telLink || ''}</td>
           <td data-label="Last visited">${fmtDate(e.lastVisited)}</td>
           <td data-label="Attempts">${e.attemptsSinceLastVisit||0}</td>
+          <td data-label="Asked">${askedCell}</td>
           <td data-label="Status">${statusPill}</td>
           <td data-label="Actions">
-            <a class="btn outline" href="${smsUrl}">Text</a>
+            <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
             <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
             <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
             <button class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabel}</button>
@@ -404,7 +449,31 @@
       if (!q('logDate').value) q('logDate').valueAsDate = new Date();
     }
 
-    /* ---------- Log / actions ---------- */
+    /* ---------- Actions ---------- */
+    window.textAndTrack = async (elderId)=>{
+      const e = elders.get(elderId);
+      if (!e || !e.phone) return;
+
+      // prune history to last 6 months and append now
+      const cutoffMs = monthsAgo(6).getTime();
+      const hist = Array.isArray(e.textHistory) ? e.textHistory.filter(iso => Date.parse(iso) >= cutoffMs) : [];
+      hist.push(new Date().toISOString());
+
+      const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
+      await updateDoc(ref, {
+        lastTexted: serverTimestamp(),
+        lastContacted: serverTimestamp(),
+        textHistory: hist,
+        attemptsSinceLastVisit: increment(1)
+      });
+
+      // open SMS composer
+      const name = (e.preferredName || e.lastName || 'there');
+      const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(smsBodyFor(name))}`;
+      // Small timeout helps ensure the write fires first
+      setTimeout(()=>{ window.location.href = smsUrl; }, 100);
+    };
+
     window.saveVisit = async ()=>{
       const elderId = q('logElderSelect').value;
       const dateStr = q('logDate').value;
@@ -496,11 +565,17 @@
       const rows = snap.docs.map(d=>{
         const e = { id:d.id, ...d.data() };
         const toIso = (t)=> t ? (t.toDate ? t.toDate().toISOString().slice(0,10) : new Date(t).toISOString().slice(0,10)) : '';
+        // compute last text from either lastTexted or textHistory
+        let lastTx = e.lastTexted ? (e.lastTexted.toDate ? e.lastTexted.toDate() : new Date(e.lastTexted)) : null;
+        if ((!lastTx || isNaN(+lastTx)) && Array.isArray(e.textHistory) && e.textHistory.length){
+          const ms = Math.max(...e.textHistory.map(x=>Date.parse(x)||0)); if (ms>0) lastTx = new Date(ms);
+        }
         return {
           PreferredName: e.preferredName || '', LastName: e.lastName || '',
           Phone: e.phone || '', Email: e.email || '', Address: e.address || '',
           DoNotText: e.doNotText ? 'Yes' : 'No', Active: e.active!==false ? 'Yes' : 'No',
           LastVisited: toIso(e.lastVisited), LastContacted: toIso(e.lastContacted),
+          LastTexted: lastTx ? lastTx.toISOString().slice(0,10) : '',
           Attempts: e.attemptsSinceLastVisit || 0, Id: e.id
         };
       });
