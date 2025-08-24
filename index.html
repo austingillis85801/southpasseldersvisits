@@ -106,7 +106,7 @@
   <!-- PapaParse -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-  <!-- FIX #1: load Firebase as a module and expose the modular APIs on window.firebase -->
+  <!-- Firebase: load as ES modules and expose on window.firebase -->
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import {
@@ -119,7 +119,6 @@
       serverTimestamp, increment
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    // Make the modular SDK available to non-module code below:
     window.firebase = {
       initializeApp,
       // auth
@@ -151,15 +150,15 @@
       });
     }
 
-    // ---- Firebase init ----
+    // ---- Firebase init (bind auth/db to the app instance) ----
     let app, auth, db, unsubElders, unsubVisits, currentUser = null;
     const elders = new Map();
     const visits = [];
 
     function initFirebase(){
       app = firebase.initializeApp(FIREBASE_CONFIG);
-      auth = firebase.getAuth();
-      db = firebase.getFirestore();
+      auth = firebase.getAuth(app);          // <-- important
+      db   = firebase.getFirestore(app);     // <-- important
 
       firebase.enableIndexedDbPersistence(db).catch(err => console.warn('Persistence error:', err.code));
 
@@ -221,7 +220,6 @@
 
     // ---- Helpers & UI ----
     const q = (id)=>document.getElementById(id);
-    const emailEl = ()=>q('email'); const passEl = ()=>q('password');
 
     function showView(name){ ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none'); if (name === 'log') fillLogSelect(); }
     function renderAll(){ renderNext(); renderElders(); fillLogSelect(); }
@@ -409,11 +407,11 @@
       const existing = Array.from(elders.values());
       function matchExisting(row){
         const phone = cleanPhone(row.Phone||row.phone||'');
-        theEmail = (row.Email||row.email||'').toLowerCase();
+        const email = (row.Email||row.email||'').toLowerCase();
         const name = ((row.PreferredName||row.FirstName||'')+'|'+(row.LastName||'')).toLowerCase();
         return existing.find(e =>
           (cleanPhone(e.phone||'') && cleanPhone(e.phone||'') === phone) ||
-          ((e.email||'').toLowerCase() && (e.email||'').toLowerCase() === theEmail) ||
+          ((e.email||'').toLowerCase() && (e.email||'').toLowerCase() === email) ||
           (((e.preferredName||'').toLowerCase()+'|'+(e.lastName||'').toLowerCase()) === name)
         );
       }
