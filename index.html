@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- prevent zoom-on-focus on iOS + keep layout snug -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>EQ Visit Tracker</title>
   <meta name="theme-color" content="#145AFF" />
   <link rel="manifest" href="manifest.webmanifest">
@@ -23,7 +24,7 @@
     .btn.outline { background:transparent; color:var(--brand); border:1px solid var(--brand); }
     .btn.light { background:#e5edff; color:var(--brand); }
     .btn.danger { background:var(--bad); }
-    .input, select { padding:.55rem .65rem; border:1px solid var(--line); border-radius:10px; background:#fff; }
+    .input, select, textarea { padding:.55rem .65rem; border:1px solid var(--line); border-radius:10px; background:#fff; font-size:16px; } /* 16px to prevent iOS zoom */
     .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:.75rem; }
     .pill { display:inline-block; padding:.2rem .5rem; border-radius:999px; font-size:.75rem; border:1px solid var(--line); background:#fff; }
     .pill.ok{ border-color:var(--ok); color:var(--ok); } .pill.warn{ border-color:var(--warn); color:var(--warn); }
@@ -31,6 +32,7 @@
     nav { display:flex; gap:.5rem; }
     main { padding:1rem; max-width:1100px; margin:0 auto; display:grid; gap:1rem; }
     .muted { color:var(--muted); }
+    .subtle { font-size:.85rem; color:#6b7280; }
     table { width:100%; border-collapse:collapse; }
     th, td { padding:.5rem; border-bottom:1px solid var(--line); text-align:left; }
     .section-title { margin:.25rem 0 .25rem; font-size:.95rem; color:#374151; }
@@ -40,9 +42,8 @@
     td.namecell { display:flex; align-items:center; gap:.5rem; font-weight:600; }
     #authBox { display:flex; gap:.5rem; align-items:center; margin-left:auto; }
     #currentUser { max-width:45vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#374151; }
-    .subtle { font-size:.85rem; color:#6b7280; }
 
-    /* Mobile */
+    /* Mobile cards for directory */
     @media (max-width:640px){
       header { gap:.5rem; padding:.5rem .75rem; }
       nav { width:100%; order:1; flex-wrap:wrap; gap:.5rem; }
@@ -60,6 +61,13 @@
       #view-elders tbody td.namecell::before { content:'Name'; }
       #currentUser { max-width:60vw; }
     }
+
+    /* “two-up” area on Next Up */
+    .twoup { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+    @media (max-width:800px){ .twoup { grid-template-columns:1fr; } }
+    .list { display:flex; flex-direction:column; gap:.5rem; }
+    .row { display:flex; gap:.5rem; align-items:center; justify-content:space-between; }
+    .row .who { font-weight:600; }
   </style>
 </head>
 <body>
@@ -85,6 +93,18 @@
   <main>
     <!-- NEXT UP -->
     <section id="view-next" class="card" style="display:none">
+      <!-- new: “recent texts” and “this week” -->
+      <div class="twoup" style="margin-bottom:.5rem">
+        <div class="card" style="padding:.75rem">
+          <div class="section-title">Recently texted (last 10 days)</div>
+          <div id="recentTexts" class="list"></div>
+        </div>
+        <div class="card" style="padding:.75rem">
+          <div class="section-title">This week’s visits (Wed)</div>
+          <div id="thisWeek" class="list"></div>
+        </div>
+      </div>
+
       <div class="toolbar">
         <input id="searchNext" class="input" placeholder="Search name/phone/email/address">
         <button class="btn outline" id="btnSearchNext">Search</button>
@@ -104,7 +124,7 @@
         <select id="sortSelect" class="input" title="Sort">
           <option value="name">First name</option>
           <option value="visited">Last visited</option>
-          <option value="attempts">Attempts</option>
+          <option value="attempts">Attempts (recent first)</option>
           <option value="phone">Phone</option>
         </select>
         <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
@@ -199,21 +219,36 @@
     const auth = getAuth(app);
 
     /* ---------- State & helpers ---------- */
-    let unsubElders = null, unsubVisits = null;
+    let unsubElders=null, unsubVisits=null, unsubSchedule=null;
     let currentUser = null;
     const elders = new Map();
     const visits = [];
+    const schedules = []; // users/{uid}/schedule
 
     const q = id => document.getElementById(id);
     const cleanPhone = s => (s||'').replace(/\D/g,'');
     const norm = s => (s||'').toString().trim().toLowerCase();
     const fmtDate = ts => { if (!ts) return '—'; const d = ts?.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString(); };
-    const daysSince = ts => { if (!ts) return null; const d = ts?.toDate ? ts.toDate() : new Date(ts); return Math.floor((Date.now()-d.getTime())/86400000); };
     const asMs = t => t ? (t.toDate ? t.toDate().getTime() : new Date(t).getTime()) : 0;
     const maxDate = (a,b)=> asMs(a) >= asMs(b) ? a : b;
-    const hash = (str)=>{ let h=5381; for (let i=0;i<str.length;i++) h=((h<<5)+h)^str.charCodeAt(i); return 'k_'+(h>>>0).toString(36); };
     const collator = new Intl.Collator(undefined, { sensitivity:'base', numeric:true });
+
+    const nowMs = ()=> Date.now();
+    const daysBetween = (ms)=> Math.floor((nowMs()-ms)/86400000);
     const monthsAgo = (n)=>{ const d=new Date(); d.setMonth(d.getMonth()-n); d.setHours(0,0,0,0); return d; };
+
+    function getMonday(d=new Date()){
+      const x = new Date(d); const day = x.getDay(); // 0=Sun
+      const diff = x.getDate() - day + (day===0 ? -6 : 1);
+      x.setDate(diff); x.setHours(0,0,0,0); return x;
+    }
+    function wednesdayOfWeek(weekOfDate){
+      const d = weekOfDate?.toDate ? weekOfDate.toDate() : new Date(weekOfDate);
+      const w = new Date(d);
+      w.setDate(w.getDate()+2); // Mon + 2 = Wed
+      w.setHours(19,0,0,0); // 7:00pm for flavor (optional)
+      return w;
+    }
 
     function updateAuthUI(user){
       const signedOut = !user;
@@ -223,7 +258,7 @@
       if (user){ q('email').value = ''; q('password').value = ''; }
     }
 
-    // New: count texts in last 6 months + most recent text date
+    // Text history helpers (store ISO strings in e.textHistory[])
     const texts6mInfo = (e)=>{
       const cutoff = monthsAgo(6).getTime();
       const arr = Array.isArray(e.textHistory) ? e.textHistory : [];
@@ -238,7 +273,6 @@
       return { count, lastDateMs: last };
     };
 
-    // Message template
     const smsBodyFor = (name) =>
       `Hey ${name}, the elders quorum presidency would love to drop in and say hi Wednesday around 7:00. Would that work for you?`;
 
@@ -257,24 +291,29 @@
         snap.forEach(d => visits.push({ id: d.id, ...d.data() }));
         renderAll();
       });
+      unsubSchedule = onSnapshot(userCol('schedule'), (snap)=>{
+        schedules.length = 0;
+        snap.forEach(d => schedules.push({ id:d.id, ...d.data() }));
+        renderAll();
+      });
     }
-    function unsubscribeData(){ if (unsubElders) unsubElders(); if (unsubVisits) unsubVisits(); }
+    function unsubscribeData(){ if (unsubElders) unsubElders(); if (unsubVisits) unsubVisits(); if (unsubSchedule) unsubSchedule(); }
 
     /* ---------- Auth ---------- */
     onAuthStateChanged(auth, (user)=>{
       currentUser = user;
       updateAuthUI(user);
-      if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length=0; renderAll(); }
+      if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length=0; schedules.length=0; renderAll(); }
     });
     window.signIn = async ()=>{ try{ await signInWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim()); }catch(e){ alert('Sign-in failed: '+(e.message||e.code)); } };
     window.create = async ()=>{ try{ await createUserWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim()); }catch(e){ alert('Create failed: '+(e.message||e.code)); } };
     window.signOut = async ()=>{ try{ await signOut(auth); }catch(e){ alert('Sign-out failed: '+(e.message||e.code)); } };
 
     /* ---------- Sorting & Search ---------- */
-    let sortBy='name', sortDir='asc'; // default: first name, A→Z
+    let sortBy='name', sortDir='asc'; // default: first name A→Z
     window.setSort = (key)=>{
       if (sortBy === key) sortDir = (sortDir==='asc' ? 'desc' : 'asc');
-      else { sortBy = key; sortDir = (key==='visited' ? 'desc' : 'asc'); }
+      else { sortBy = key; sortDir = (key==='visited' || key==='attempts') ? 'desc' : 'asc'; }
       renderElders();
     };
     function updateSortArrows(){
@@ -302,7 +341,7 @@
 
       q('sortSelect')?.addEventListener('change', e=>{
         sortBy = e.target.value;
-        sortDir = (sortBy === 'visited') ? 'desc' : 'asc';
+        sortDir = (sortBy==='visited' || sortBy==='attempts') ? 'desc' : 'asc';
         renderElders();
       });
     };
@@ -313,38 +352,34 @@
       COOLDOWN_DAYS_TEXT:14,            // push back 14 days after a text
       PENALTY_RECENT_TEXT:-40           // strong penalty if texted within cooldown window
     };
-
     function needVisitThisYear(e){
       const threshold = monthsAgo(12).getTime();
       const lv = asMs(e.lastVisited);
       return !lv || lv < threshold;
     }
-
     function nextUpScore(e){
       if (e.active === false || e.doNotText) return -999;
 
-      // Holdout if texted twice in the last 6 months
+      // Hold out if texted 2× within 6 months
       const tx = texts6mInfo(e);
       if (tx.count >= 2) return -999;
 
-      const lvDays = e.lastVisited ? daysSince(e.lastVisited) : null;
+      const lvDays = e.lastVisited ? Math.floor((nowMs()-asMs(e.lastVisited))/86400000) : null;
       const daysScore = (lvDays === null ? SETTINGS.BONUS_NEVER : lvDays * SETTINGS.W_DAYS);
       const attemptsScore = (e.attemptsSinceLastVisit || 0) * SETTINGS.W_ATTEMPTS;
 
-      // Recent text penalty
+      // recent text penalty
       let recentPenalty = 0;
       if (tx.lastDateMs){
-        const daysSinceText = Math.floor((Date.now() - tx.lastDateMs)/86400000);
+        const daysSinceText = daysBetween(tx.lastDateMs);
         if (daysSinceText < SETTINGS.COOLDOWN_DAYS_TEXT) recentPenalty = SETTINGS.PENALTY_RECENT_TEXT;
       }
 
-      // Prefer folks who still need a visit in rolling 12m
-      const needs = needVisitThisYear(e) ? 20 : 0; // small boost
-
+      const needs = needVisitThisYear(e) ? 20 : 0; // small boost to those still needing a 12m visit
       return daysScore + attemptsScore + recentPenalty + needs;
     }
 
-    /* ---------- Counters (ROLLING 12 MONTHS) ---------- */
+    /* ---------- Counters (rolling 12m) ---------- */
     function updateCounters(){
       const all = Array.from(elders.values());
       const active = all.filter(e=>e.active!==false);
@@ -362,7 +397,13 @@
     };
     function renderAll(){ renderNext(); renderElders(); fillLogSelect(); updateSortArrows(); updateCounters(); }
 
+    // --- Next Up (cards) + “recent texts” + “this week” ---
     function renderNext(){
+      // panels at top
+      renderRecentTexts();
+      renderThisWeek();
+
+      // Top candidates
       const grid = q('nextGrid');
       const tokens = norm(q('searchNext').value).split(/\s+/).filter(Boolean);
       const arr = Array.from(elders.values()).map(e=>({ ...e, _score: nextUpScore(e) }))
@@ -371,7 +412,8 @@
         .slice(0,18);
 
       grid.innerHTML = arr.map(e=>{
-        const ds = e.lastVisited ? daysSince(e.lastVisited) : null;
+        const lvMs = asMs(e.lastVisited);
+        const ds = lvMs ? Math.floor((nowMs()-lvMs)/86400000) : null;
         const status = ds === null ? 'warn' : (ds >= 30 ? 'bad' : (ds >= 14 ? 'warn' : 'ok'));
         const diff = ds === null ? 'Never' : (ds + 'd');
 
@@ -396,6 +438,69 @@
       }).join('');
     }
 
+    function renderRecentTexts(){
+      const container = q('recentTexts'); if (!container) return;
+      const tenDaysAgo = Date.now() - 10*86400000;
+      const items = Array.from(elders.values())
+        .map(e=>({ e, lastTx: texts6mInfo(e).lastDateMs }))
+        .filter(x=> x.lastTx && x.lastTx >= tenDaysAgo)
+        .sort((a,b)=> b.lastTx - a.lastTx)
+        .slice(0,12);
+      if (!items.length){ container.innerHTML = '<div class="subtle">None yet.</div>'; return; }
+
+      const thisMon = getMonday();
+      const already = new Set(
+        schedules
+          .filter(s => asMs(s.weekOf) === thisMon.getTime())
+          .map(s => s.elderId)
+      );
+
+      container.innerHTML = items.map(({e,lastTx})=>{
+        const name = (e.preferredName||'')+' '+(e.lastName||'');
+        const canConfirm = !already.has(e.id);
+        return `
+          <div class="row">
+            <div>
+              <div class="who">${name}</div>
+              <div class="subtle">Texted ${new Date(lastTx).toLocaleDateString()}</div>
+            </div>
+            <div>
+              <button class="btn ${canConfirm?'':'outline'}" ${canConfirm?`onclick="confirmVisitThisWed('${e.id}')"`:'disabled'}>
+                ${canConfirm?'Confirm for Wed':'Scheduled'}
+              </button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    function renderThisWeek(){
+      const container = q('thisWeek'); if (!container) return;
+      const thisMon = getMonday();
+      const list = schedules
+        .filter(s => asMs(s.weekOf) === thisMon.getTime())
+        .sort((a,b)=> (a.status||'').localeCompare(b.status||''));
+
+      if (!list.length){ container.innerHTML = '<div class="subtle">No one scheduled yet.</div>'; return; }
+
+      container.innerHTML = list.map(s=>{
+        const e = elders.get(s.elderId);
+        const name = e ? ((e.preferredName||'')+' '+(e.lastName||'')) : (s.elderName||'—');
+        return `
+          <div class="row">
+            <div>
+              <div class="who">${name}</div>
+              <div class="subtle">${s.status||'Planned'}</div>
+            </div>
+            <div style="display:flex; gap:.5rem">
+              <button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>
+              <button class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    /* ---------- Directory ---------- */
+    window.renderElders = renderElders;
     function renderElders(){
       const tb = q('eldersTbody');
       const tokens = norm(q('searchElders').value).split(/\s+/).filter(Boolean);
@@ -409,7 +514,9 @@
       const cmpName = (a,b)=> (collator.compare(a.preferredName||'', b.preferredName||'') || collator.compare(a.lastName||'', b.lastName||'')) * dir;
       const cmpPhone = (a,b)=> collator.compare(cleanPhone(a.phone||''), cleanPhone(b.phone||'')) * dir;
       const cmpVisited = (a,b)=> (asMs(a.lastVisited) - asMs(b.lastVisited)) * dir;
-      const cmpAttempts = (a,b)=> ((a.attemptsSinceLastVisit||0) - (b.attemptsSinceLastVisit||0)) * dir;
+      // attempts = most recently asked first -> use lastContacted or last text time
+      const lastAskedMs = (x)=> Math.max(asMs(x.lastContacted)||0, texts6mInfo(x).lastDateMs||0);
+      const cmpAttempts = (a,b)=> (lastAskedMs(a) - lastAskedMs(b)) * (sortDir==='asc'?1:-1); // we force desc by default
       const cmps = { name:cmpName, phone:cmpPhone, visited:cmpVisited, attempts:cmpAttempts };
       arr.sort(cmps[sortBy] || cmpName);
 
@@ -417,7 +524,6 @@
         const inactive = e.active===false;
         const statusPill = inactive ? `<span class="pill gray">Inactive</span>` : `<span class="pill ok">Active</span>`;
         const archiveLabel = inactive ? 'Unarchive' : 'Archive';
-        const name = (e.preferredName || e.lastName || 'there');
         const telLink = e.phone ? `<a href="tel:+1${cleanPhone(e.phone)}">${e.phone}</a>` : '';
 
         const tx = texts6mInfo(e);
@@ -430,10 +536,11 @@
           <td data-label="Attempts">${e.attemptsSinceLastVisit||0}</td>
           <td data-label="Asked">${askedCell}</td>
           <td data-label="Status">${statusPill}</td>
-          <td data-label="Actions">
+          <td data-label="Actions" style="display:flex; gap:.35rem; flex-wrap:wrap">
             <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
             <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
             <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
+            <button class="btn outline" onclick="adjustMenu('${e.id}')">Adjust…</button>
             <button class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabel}</button>
           </td>
         </tr>`;
@@ -454,7 +561,7 @@
       const e = elders.get(elderId);
       if (!e || !e.phone) return;
 
-      // prune history to last 6 months and append now
+      // prune to 6m and append now
       const cutoffMs = monthsAgo(6).getTime();
       const hist = Array.isArray(e.textHistory) ? e.textHistory.filter(iso => Date.parse(iso) >= cutoffMs) : [];
       hist.push(new Date().toISOString());
@@ -467,10 +574,8 @@
         attemptsSinceLastVisit: increment(1)
       });
 
-      // open SMS composer
       const name = (e.preferredName || e.lastName || 'there');
       const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(smsBodyFor(name))}`;
-      // Small timeout helps ensure the write fires first
       setTimeout(()=>{ window.location.href = smsUrl; }, 100);
     };
 
@@ -545,6 +650,41 @@
       }
     };
 
+    // Adjust menu: reset visit or remove last ask (with double-check)
+    window.adjustMenu = async (id)=>{
+      const e = elders.get(id); if (!e) return;
+      const choice = prompt(
+        'Type 1 or 2 (or Cancel):\n' +
+        '1) Reset last visit (treat as not visited)\n' +
+        '2) Remove last ask (decrement attempts & remove latest text log)\n' +
+        'Cancel) anything else'
+      );
+      if (choice === '1'){
+        if (!confirm('Are you sure you want to reset LAST VISIT for this elder?')) return;
+        const ref = doc(db, 'users', currentUser.uid, 'elders', id);
+        await updateDoc(ref, {
+          lastVisited: null,
+          lastContacted: serverTimestamp(),
+          attemptsSinceLastVisit: increment(1) // bump—still need to ask again
+        });
+        alert('Last visit reset.');
+      } else if (choice === '2'){
+        if (!confirm('Are you sure you want to remove the MOST RECENT ASK?')) return;
+        const hist = Array.isArray(e.textHistory) ? [...e.textHistory] : [];
+        if (hist.length) hist.pop();
+        const newAttempts = Math.max(0, (e.attemptsSinceLastVisit||0)-1);
+        const ref = doc(db, 'users', currentUser.uid, 'elders', id);
+        await updateDoc(ref, {
+          textHistory: hist,
+          attemptsSinceLastVisit: newAttempts,
+          lastTexted: null // UI will compute from history anyway
+        });
+        alert('Most recent ask removed.');
+      } else {
+        // no-op
+      }
+    };
+
     /* ---------- Keys (no householdId) ---------- */
     const keyFromDoc = (e) => [ cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||'')) ].join('|');
     const keyFromRow = (r) => [ cleanPhone(r.Phone||r.phone||''), norm(r.Email||r.email||''), norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||'')) ].join('|');
@@ -565,7 +705,7 @@
       const rows = snap.docs.map(d=>{
         const e = { id:d.id, ...d.data() };
         const toIso = (t)=> t ? (t.toDate ? t.toDate().toISOString().slice(0,10) : new Date(t).toISOString().slice(0,10)) : '';
-        // compute last text from either lastTexted or textHistory
+        // last text from lastTexted or textHistory
         let lastTx = e.lastTexted ? (e.lastTexted.toDate ? e.lastTexted.toDate() : new Date(e.lastTexted)) : null;
         if ((!lastTx || isNaN(+lastTx)) && Array.isArray(e.textHistory) && e.textHistory.length){
           const ms = Math.max(...e.textHistory.map(x=>Date.parse(x)||0)); if (ms>0) lastTx = new Date(ms);
@@ -655,9 +795,10 @@
         items.forEach(e=>{ const k=getter(e); if(!k) return; if(!m.has(k)) m.set(k,[]); m.get(k).push(e.id); });
         return m;
       };
-      const byPhone = mapify(e=>cleanPhone(e.phone||''));
-      const byEmail = mapify(e=>norm(e.email||''));
-      const byName  = mapify(e=>norm((e.preferredName||'')+'|'+(e.lastName||'')));
+      const clean = x=>x||'';
+      const byPhone = mapify(e=>cleanPhone(clean(e.phone)));
+      const byEmail = mapify(e=>norm(clean(e.email)));
+      const byName  = mapify(e=>norm((clean(e.preferredName))+'|'+(clean(e.lastName))));
       [byPhone,byEmail,byName].forEach(map=>{ map.forEach(ids=>{ for(let i=1;i<ids.length;i++) unite(parent, ids[0], ids[i]); }); });
 
       const clusters = new Map();
@@ -699,6 +840,55 @@
         }
       }
       alert(`Fixed ${mergedCount} duplicate record(s).`);
+    };
+
+    /* ---------- Scheduling helpers ---------- */
+    window.confirmVisitThisWed = async (elderId)=>{
+      const e = elders.get(elderId); if (!e) return;
+      const monday = getMonday();
+      await addDoc(userCol('schedule'), {
+        weekOf: monday,
+        elderId,
+        elderName: (e.preferredName||'')+' '+(e.lastName||''),
+        createdAt: new Date(),
+        status: 'Confirmed'
+      });
+      alert('Confirmed for Wednesday.');
+    };
+    window.unschedule = async (scheduleId)=>{
+      if (!confirm('Remove from this week’s plan?')) return;
+      await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
+    };
+    window.markVisitedFromSchedule = async (scheduleId)=>{
+      const s = schedules.find(x=>x.id===scheduleId); if (!s) return;
+      const e = elders.get(s.elderId); if (!e) return;
+      if (!confirm(`Mark ${e.preferredName||e.lastName||'this elder'} as visited (this Wed)?`)) return;
+      const wed = wednesdayOfWeek(s.weekOf);
+      // update elder
+      await updateDoc(doc(db,'users',currentUser.uid,'elders',s.elderId), {
+        lastVisited: wed,
+        attemptsSinceLastVisit: 0,
+        lastContacted: serverTimestamp()
+      });
+      // add visit record
+      await addDoc(userCol('visits'), {
+        elderId: s.elderId, visitDate: wed.toISOString().slice(0,10),
+        outcome: 'Visited', visitors: 'Presidency', notes:'(Auto from schedule)', createdAt: new Date()
+      });
+      // mark schedule visited (optional)
+      await updateDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId), { status:'Visited' });
+      alert('Marked visited.');
+    };
+
+    window.pickThisWeek = async ()=>{
+      const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText);
+      arr.forEach(e => e._score = nextUpScore(e));
+      arr.sort((a,b)=> b._score - a._score);
+      if (!arr.length) return alert('No eligible elders.');
+      const chosen = arr[0];
+      const monday = getMonday();
+      await addDoc(userCol('schedule'), { weekOf:monday, elderId:chosen.id, elderName:(chosen.preferredName||'')+' '+(chosen.lastName||''), createdAt:new Date(), status:'Planned' });
+      alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||'' ));
     };
 
     /* ---------- Start ---------- */
