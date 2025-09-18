@@ -824,6 +824,15 @@
 
       let mergedCount = 0;
       const score = e => (e.email?1:0)+(e.phone?1:0)+(e.address?1:0)+(e.active!==false?1:0)+(e.lastVisited?2:0)+(e.lastContacted?1:0)+((e.attemptsSinceLastVisit||0)>0?1:0);
+      const keeperScheduleCache = new Map();
+      const statusWeight = status => ({ Visited:3, Confirmed:2, Planned:1 }[status] || 0);
+      const ensureKeeperSchedules = async (keeperId)=>{
+        if (keeperScheduleCache.has(keeperId)) return keeperScheduleCache.get(keeperId);
+        const snap = await getDocs(query(userCol('schedule'), where('elderId','==', keeperId)));
+        const arr = snap.docs.map(d=>({ id:d.id, data:d.data() }));
+        keeperScheduleCache.set(keeperId, arr);
+        return arr;
+      };
 
       for (const [, group] of clusters){
         if (group.length <= 1) continue;
@@ -839,6 +848,41 @@
 
           const vs = await getDocs(query(userCol('visits'), where('elderId','==', dup.id)));
           for (const v of vs.docs){ await updateDoc(doc(db,'users',uid,'visits',v.id), { elderId: keep.id }); }
+
+          const dupSchedules = await getDocs(query(userCol('schedule'), where('elderId','==', dup.id)));
+          const keeperSchedules = await ensureKeeperSchedules(keep.id);
+          for (const sched of dupSchedules.docs){
+            const schedData = sched.data();
+            const weekMs = asMs(schedData.weekOf);
+            const existing = keeperSchedules.find(s=> asMs(s.data.weekOf) === weekMs);
+            const keeperName = ((keep.preferredName||'')+' '+(keep.lastName||'')).trim();
+
+            if (existing){
+              const updates = {};
+              if (statusWeight(schedData.status) > statusWeight(existing.data.status)) updates.status = schedData.status;
+              const existingName = (existing.data.elderName||'').trim();
+              if (keeperName && existingName !== keeperName) updates.elderName = keeperName;
+              if (schedData.createdAt && (!existing.data.createdAt || asMs(schedData.createdAt) < asMs(existing.data.createdAt))) updates.createdAt = schedData.createdAt;
+              for (const [key, value] of Object.entries(schedData)){
+                if (['elderId','elderName','weekOf','status','createdAt'].includes(key)) continue;
+                const current = existing.data[key];
+                if ((current === undefined || current === null || current === '') && value !== undefined && value !== null && value !== '') updates[key] = value;
+              }
+              if (Object.keys(updates).length){
+                await updateDoc(doc(db,'users',uid,'schedule',existing.id), updates);
+                Object.assign(existing.data, updates);
+              }
+              await deleteDoc(doc(db,'users',uid,'schedule',sched.id));
+            } else {
+              const updates = { elderId: keep.id };
+              if (keeperName && (schedData.elderName||'').trim() !== keeperName) updates.elderName = keeperName;
+              if (Object.keys(updates).length){
+                await updateDoc(doc(db,'users',uid,'schedule',sched.id), updates);
+                Object.assign(schedData, updates);
+              }
+              keeperSchedules.push({ id: sched.id, data: schedData });
+            }
+          }
 
           const merged = {
             preferredName: keep.preferredName || dup.preferredName || '',
