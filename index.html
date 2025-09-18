@@ -228,6 +228,21 @@
     const q = id => document.getElementById(id);
     const cleanPhone = s => (s||'').replace(/\D/g,'');
     const norm = s => (s||'').toString().trim().toLowerCase();
+    const firestoreSafeId = (key)=>{
+      const raw = (key||'').toString();
+      let clean = raw.normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
+      clean = clean.replace(/[^A-Za-z0-9._-]+/g,'-').replace(/-+/g,'-').replace(/(^-|-$)/g,'');
+      if (!clean) clean = 'id';
+      clean = clean.slice(0, 100);
+      clean = clean.replace(/(^-|-$)/g,'');
+      if (!clean) clean = 'id';
+      let hash = 0;
+      for (let i = 0; i < raw.length; i++){
+        hash = (hash * 31 + raw.charCodeAt(i)) >>> 0;
+      }
+      const suffix = hash.toString(16).padStart(8,'0');
+      return `${clean}-${suffix}`;
+    };
     const fmtDate = ts => { if (!ts) return '—'; const d = ts?.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString(); };
     const asMs = t => t ? (t.toDate ? t.toDate().getTime() : new Date(t).getTime()) : 0;
     const maxDate = (a,b)=> asMs(a) >= asMs(b) ? a : b;
@@ -764,7 +779,7 @@
         if (match){
           await updateDoc(doc(db,'users',currentUser.uid,'elders',match.id), payload);
         } else {
-          const newId = hash(key);
+          const newId = firestoreSafeId(key);
           await setDoc(doc(db,'users',currentUser.uid,'elders',newId), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 }, { merge:true });
           existingByKey.set(key, { id:newId, ...payload });
         }
