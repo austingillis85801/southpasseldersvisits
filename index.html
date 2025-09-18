@@ -247,6 +247,12 @@
     const asMs = t => t ? (t.toDate ? t.toDate().getTime() : new Date(t).getTime()) : 0;
     const maxDate = (a,b)=> asMs(a) >= asMs(b) ? a : b;
     const collator = new Intl.Collator(undefined, { sensitivity:'base', numeric:true });
+    const escapeHtml = (value)=> String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
 
     const nowMs = ()=> Date.now();
     const daysBetween = (ms)=> Math.floor((nowMs()-ms)/86400000);
@@ -434,16 +440,21 @@
 
         const tx = texts6mInfo(e);
         const askedTxt = tx.lastDateMs ? `Last text: ${new Date(tx.lastDateMs).toLocaleDateString()}${tx.count?` • ${tx.count}×/6m`:''}` : 'No texts yet';
+        const displayName = [e.preferredName, e.lastName].filter(Boolean).join(' ').trim();
+        const nameHtml = escapeHtml(displayName);
+        const phoneHtml = escapeHtml(e.phone||'');
+        const askedHtml = escapeHtml(askedTxt);
+        const diffHtml = escapeHtml(diff);
         const name = (e.preferredName || e.lastName || 'there');
 
         return `
           <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center">
-              <div style="font-weight:700">${(e.preferredName||'') + ' ' + (e.lastName||'')}</div>
-              <span class="pill ${status}">${diff}</span>
+              <div style="font-weight:700">${nameHtml}</div>
+              <span class="pill ${status}">${diffHtml}</span>
             </div>
-            <div class="muted" style="margin:.25rem 0">${e.phone||''}</div>
-            <div class="subtle">${askedTxt}</div>
+            <div class="muted" style="margin:.25rem 0">${phoneHtml}</div>
+            <div class="subtle">${askedHtml}</div>
             <div style="display:flex; gap:.5rem; margin-top:.35rem">
               <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
               <button class="btn" onclick="quickLogVisit('${e.id}')">Log now</button>
@@ -471,13 +482,15 @@
       );
 
       container.innerHTML = items.map(({e,lastTx})=>{
-        const name = (e.preferredName||'')+' '+(e.lastName||'');
+        const displayName = [e.preferredName, e.lastName].filter(Boolean).join(' ').trim();
+        const nameHtml = escapeHtml(displayName);
+        const textDateHtml = escapeHtml(new Date(lastTx).toLocaleDateString());
         const canConfirm = !already.has(e.id);
         return `
           <div class="row">
             <div>
-              <div class="who">${name}</div>
-              <div class="subtle">Texted ${new Date(lastTx).toLocaleDateString()}</div>
+              <div class="who">${nameHtml}</div>
+              <div class="subtle">Texted ${textDateHtml}</div>
             </div>
             <div>
               <button class="btn ${canConfirm?'':'outline'}" ${canConfirm?`onclick="confirmVisitThisWed('${e.id}')"`:'disabled'}>
@@ -499,12 +512,14 @@
 
       container.innerHTML = list.map(s=>{
         const e = elders.get(s.elderId);
-        const name = e ? ((e.preferredName||'')+' '+(e.lastName||'')) : (s.elderName||'—');
+        const rawName = e ? [e.preferredName, e.lastName].filter(Boolean).join(' ').trim() : (s.elderName||'—');
+        const nameHtml = escapeHtml(rawName);
+        const statusHtml = escapeHtml(s.status||'Planned');
         return `
           <div class="row">
             <div>
-              <div class="who">${name}</div>
-              <div class="subtle">${s.status||'Planned'}</div>
+              <div class="who">${nameHtml}</div>
+              <div class="subtle">${statusHtml}</div>
             </div>
             <div style="display:flex; gap:.5rem">
               <button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>
@@ -539,24 +554,30 @@
         const inactive = e.active===false;
         const statusPill = inactive ? `<span class="pill gray">Inactive</span>` : `<span class="pill ok">Active</span>`;
         const archiveLabel = inactive ? 'Unarchive' : 'Archive';
-        const telLink = e.phone ? `<a href="tel:+1${cleanPhone(e.phone)}">${e.phone}</a>` : '';
+        const archiveLabelHtml = escapeHtml(archiveLabel);
+        const phoneDisplay = escapeHtml(e.phone||'');
+        const telLink = e.phone ? `<a href="tel:+1${cleanPhone(e.phone)}">${phoneDisplay}</a>` : '';
 
         const tx = texts6mInfo(e);
         const askedCell = tx.lastDateMs ? `${new Date(tx.lastDateMs).toLocaleDateString()}${tx.count?` • ${tx.count}×/6m`:''}` : '—';
+        const askedHtml = escapeHtml(askedCell);
+        const nameHtml = escapeHtml([e.preferredName, e.lastName].filter(Boolean).join(' ').trim());
+        const visitedHtml = escapeHtml(fmtDate(e.lastVisited));
+        const attemptsHtml = escapeHtml(String(e.attemptsSinceLastVisit||0));
 
         return `<tr class="${inactive?'inactive':''}">
-          <td class="namecell" data-label="Name">${(e.preferredName||'') + ' ' + (e.lastName||'')}</td>
+          <td class="namecell" data-label="Name">${nameHtml}</td>
           <td data-label="Phone">${telLink || ''}</td>
-          <td data-label="Last visited">${fmtDate(e.lastVisited)}</td>
-          <td data-label="Attempts">${e.attemptsSinceLastVisit||0}</td>
-          <td data-label="Asked">${askedCell}</td>
+          <td data-label="Last visited">${visitedHtml}</td>
+          <td data-label="Attempts">${attemptsHtml}</td>
+          <td data-label="Asked">${askedHtml}</td>
           <td data-label="Status">${statusPill}</td>
           <td data-label="Actions" style="display:flex; gap:.35rem; flex-wrap:wrap">
             <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
             <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
             <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
             <button class="btn outline" onclick="adjustMenu('${e.id}')">Adjust…</button>
-            <button class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabel}</button>
+            <button class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabelHtml}</button>
           </td>
         </tr>`;
       }).join('');
@@ -567,7 +588,11 @@
     function fillLogSelect(){
       const sel = q('logElderSelect');
       const arr = Array.from(elders.values()).filter(e=>e.active!==false).sort((a,b)=>collator.compare(a.lastName||'', b.lastName||''));
-      sel.innerHTML = arr.map(e=>`<option value="${e.id}">${(e.preferredName||'')+' '+(e.lastName||'')}</option>`).join('');
+      sel.innerHTML = arr.map(e=>{
+        const optionValue = escapeHtml(e.id);
+        const optionLabel = escapeHtml([e.preferredName, e.lastName].filter(Boolean).join(' ').trim());
+        return `<option value="${optionValue}">${optionLabel}</option>`;
+      }).join('');
       if (!q('logDate').value) q('logDate').valueAsDate = new Date();
     }
 
