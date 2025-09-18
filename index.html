@@ -850,7 +850,8 @@
             lastContacted: maxDate(keep.lastContacted, dup.lastContacted) || keep.lastContacted || dup.lastContacted || null,
             attemptsSinceLastVisit: Math.max(keep.attemptsSinceLastVisit||0, dup.attemptsSinceLastVisit||0),
             doNotText: !!(keep.doNotText || dup.doNotText),
-            active: (keep.active!==false && dup.active!==false)
+            // Keep the merged elder active if any source record is still active.
+            active: (keep.active!==false || dup.active!==false)
           };
           await updateDoc(doc(db,'users',uid,'elders',keep.id), merged);
           await deleteDoc(doc(db,'users',uid,'elders',dup.id));
