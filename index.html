@@ -605,11 +605,14 @@
       await addDoc(userCol('visits'), visit);
       const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
       const isVisited = (outcome === 'Visited' || outcome === 'Scheduled');
-      await updateDoc(ref, {
-        lastVisited: isVisited ? new Date(dateStr) : serverTimestamp(),
+      const update = {
         lastContacted: serverTimestamp(),
         attemptsSinceLastVisit: isVisited ? 0 : increment(1)
-      });
+      };
+      if (isVisited) {
+        update.lastVisited = new Date(dateStr);
+      }
+      await updateDoc(ref, update);
       q('logNotes').value='';
       alert('Saved.');
     };
