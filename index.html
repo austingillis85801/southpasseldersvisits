@@ -40,7 +40,7 @@
     .thbtn span { margin-left:.25rem; color:#6b7280; }
     tr.inactive { opacity:.55; }
     td.namecell { display:flex; align-items:center; gap:.5rem; font-weight:600; }
-    #authBox { display:flex; gap:.5rem; align-items:center; margin-left:auto; }
+    #authBox { display:flex; gap:.5rem; align-items:center; margin-left:auto; flex-wrap:wrap; }
     #currentUser { max-width:45vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#374151; }
 
     /* Mobile cards for directory */
@@ -48,6 +48,8 @@
       header { gap:.5rem; padding:.5rem .75rem; }
       nav { width:100%; order:1; flex-wrap:wrap; gap:.5rem; }
       #authBox { width:100%; order:2; justify-content:flex-start; }
+      #authBox input,
+      #authBox button { flex:1 1 100%; }
       .btn { padding:.45rem .7rem; border-radius:10px; }
       .grid { grid-template-columns:1fr; }
       .card { padding:.75rem; }
