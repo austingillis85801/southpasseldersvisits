@@ -228,6 +228,14 @@
     const q = id => document.getElementById(id);
     const cleanPhone = s => (s||'').replace(/\D/g,'');
     const norm = s => (s||'').toString().trim().toLowerCase();
+    const SIGN_IN_MSG = 'Please sign in to continue.';
+    const requireUser = ()=>{
+      if (currentUser) return currentUser;
+      alert(SIGN_IN_MSG);
+      const err = new Error(SIGN_IN_MSG);
+      err.friendly = true;
+      throw err;
+    };
     const firestoreSafeId = (key)=>{
       const raw = (key||'').toString();
       let clean = raw.normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
@@ -291,7 +299,8 @@
     const smsBodyFor = (name) =>
       `Hey ${name}, the elders quorum presidency would love to drop in and say hi Wednesday around 7:00. Would that work for you?`;
 
-    const userCol = path => { if (!currentUser) throw new Error('Not signed in'); return collection(db,'users',currentUser.uid,path); };
+    const userCol = path => { requireUser(); return collection(db,'users',currentUser.uid,path); };
+    const userDoc = (...segments) => { requireUser(); return doc(db,'users',currentUser.uid,...segments); };
 
     function subscribeData(){
       unsubElders = onSnapshot(userCol('elders'), (snap)=>{
@@ -572,7 +581,17 @@
     }
 
     /* ---------- Actions ---------- */
-    window.textAndTrack = async (elderId)=>{
+    const guardAction = (fn, context) => async (...args)=>{
+      try {
+        await fn(...args);
+      } catch (err) {
+        if (err?.friendly) return;
+        console.error(err);
+        alert(`Unable to ${context}: ${err?.message || err}`);
+      }
+    };
+
+    window.textAndTrack = guardAction(async (elderId)=>{
       const e = elders.get(elderId);
       if (!e || !e.phone) return;
 
@@ -581,7 +600,7 @@
       const hist = Array.isArray(e.textHistory) ? e.textHistory.filter(iso => Date.parse(iso) >= cutoffMs) : [];
       hist.push(new Date().toISOString());
 
-      const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
+      const ref = userDoc('elders', elderId);
       await updateDoc(ref, {
         lastTexted: serverTimestamp(),
         lastContacted: serverTimestamp(),
@@ -592,9 +611,9 @@
       const name = (e.preferredName || e.lastName || 'there');
       const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(smsBodyFor(name))}`;
       setTimeout(()=>{ window.location.href = smsUrl; }, 100);
-    };
+    }, 'send text');
 
-    window.saveVisit = async ()=>{
+    window.saveVisit = guardAction(async ()=>{
       const elderId = q('logElderSelect').value;
       const dateStr = q('logDate').value;
       const outcome = q('logOutcome').value;
@@ -603,7 +622,7 @@
       if (!elderId || !dateStr) return alert('Pick elder and date');
       const visit = { elderId, visitDate: dateStr, outcome, visitors, notes, createdAt: new Date() };
       await addDoc(userCol('visits'), visit);
-      const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
+      const ref = userDoc('elders', elderId);
       const isVisited = (outcome === 'Visited' || outcome === 'Scheduled');
       const update = {
         lastContacted: serverTimestamp(),
@@ -615,27 +634,27 @@
       await updateDoc(ref, update);
       q('logNotes').value='';
       alert('Saved.');
-    };
+    }, 'save visit');
 
-    window.quickLogVisit = async (elderId)=>{
-      const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
+    window.quickLogVisit = guardAction(async (elderId)=>{
+      const ref = userDoc('elders', elderId);
       await updateDoc(ref, { lastVisited: serverTimestamp(), lastContacted: serverTimestamp(), attemptsSinceLastVisit: 0 });
       await addDoc(userCol('visits'), {
         elderId, visitDate: new Date().toISOString().slice(0,10),
         outcome: 'Visited', visitors: 'Presidency', notes:'(Quick log)', createdAt: new Date()
       });
-    };
+    }, 'quick log visit');
 
-    window.noAnswer = async (elderId)=>{
-      const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
+    window.noAnswer = guardAction(async (elderId)=>{
+      const ref = userDoc('elders', elderId);
       await updateDoc(ref, { lastContacted: serverTimestamp(), attemptsSinceLastVisit: increment(1) });
       await addDoc(userCol('visits'), {
         elderId, visitDate: new Date().toISOString().slice(0,10),
         outcome: 'No answer', visitors: 'Presidency', notes:'', createdAt: new Date()
       });
-    };
+    }, 'record no answer');
 
-    window.addElderPrompt = async ()=>{
+    window.addElderPrompt = guardAction(async ()=>{
       const name = prompt('Preferred name and last name (e.g., John Doe)?');
       if (!name) return;
       const phone = prompt('Phone (optional)') || '';
@@ -645,31 +664,31 @@
         preferredName, lastName, phone, active: true, firstSeen: new Date(),
         attemptsSinceLastVisit: 0, doNotText: false
       });
-    };
+    }, 'add elder');
 
-    window.editElder = async (id)=>{
+    window.editElder = guardAction(async (id)=>{
       const e = elders.get(id); if (!e) return;
       const name = prompt('Edit name', `${e.preferredName||''} ${e.lastName||''}`) || '';
       const phone = prompt('Edit phone', e.phone||'') || '';
       const doNotText = confirm('Mark as Do Not Text? Click OK for Yes, Cancel for No');
       const [preferredName, ...rest] = name.split(' ');
       const lastName = rest.join(' ');
-      const ref = doc(db, 'users', currentUser.uid, 'elders', id);
+      const ref = userDoc('elders', id);
       await updateDoc(ref, { preferredName, lastName, phone, doNotText });
-    };
+    }, 'update elder');
 
-    window.toggleArchive = async (id, isInactive)=>{
-      const ref = doc(db, 'users', currentUser.uid, 'elders', id);
+    window.toggleArchive = guardAction(async (id, isInactive)=>{
+      const ref = userDoc('elders', id);
       if (isInactive) {
         await updateDoc(ref, { active: true });
       } else {
         if (!confirm('Archive this elder (set inactive)?')) return;
         await updateDoc(ref, { active: false });
       }
-    };
+    }, 'update elder status');
 
     // Adjust menu: reset visit or remove last ask (with double-check)
-    window.adjustMenu = async (id)=>{
+    window.adjustMenu = guardAction(async (id)=>{
       const e = elders.get(id); if (!e) return;
       const choice = prompt(
         'Type 1 or 2 (or Cancel):\n' +
@@ -679,7 +698,7 @@
       );
       if (choice === '1'){
         if (!confirm('Are you sure you want to reset LAST VISIT for this elder?')) return;
-        const ref = doc(db, 'users', currentUser.uid, 'elders', id);
+        const ref = userDoc('elders', id);
         await updateDoc(ref, {
           lastVisited: null,
           lastContacted: serverTimestamp(),
@@ -691,7 +710,7 @@
         const hist = Array.isArray(e.textHistory) ? [...e.textHistory] : [];
         if (hist.length) hist.pop();
         const newAttempts = Math.max(0, (e.attemptsSinceLastVisit||0)-1);
-        const ref = doc(db, 'users', currentUser.uid, 'elders', id);
+        const ref = userDoc('elders', id);
         await updateDoc(ref, {
           textHistory: hist,
           attemptsSinceLastVisit: newAttempts,
@@ -701,14 +720,14 @@
       } else {
         // no-op
       }
-    };
+    }, 'adjust elder');
 
     /* ---------- Keys (no householdId) ---------- */
     const keyFromDoc = (e) => [ cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||'')) ].join('|');
     const keyFromRow = (r) => [ cleanPhone(r.Phone||r.phone||''), norm(r.Email||r.email||''), norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||'')) ].join('|');
 
     /* ---------- Export backup / CSV ---------- */
-    window.exportBackup = async ()=>{
+    window.exportBackup = guardAction(async ()=>{
       const [es, vs] = await Promise.all([ getDocs(userCol('elders')), getDocs(userCol('visits')) ]);
       const data = {
         elders: es.docs.map(d=>({id:d.id,...d.data()})),
@@ -717,8 +736,8 @@
       const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'eq-visit-backup.json'; a.click(); URL.revokeObjectURL(a.href);
-    };
-    window.exportCsv = async ()=>{
+    }, 'export backup');
+    window.exportCsv = guardAction(async ()=>{
       const snap = await getDocs(userCol('elders'));
       const rows = snap.docs.map(d=>{
         const e = { id:d.id, ...d.data() };
@@ -741,7 +760,7 @@
       const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'elders_export.csv'; a.click(); URL.revokeObjectURL(a.href);
-    };
+    }, 'export CSV');
 
     /* ---------- Import (idempotent) ---------- */
     function parseCsv(file){
@@ -750,7 +769,7 @@
           complete: (res)=>resolve(res.data), error: reject });
       });
     }
-    window.importCsv = async ()=>{
+    window.importCsv = guardAction(async ()=>{
       const file = q('csvFile').files[0];
       if (!file) return alert('Choose a CSV file.');
       const rows = await parseCsv(file);
@@ -780,26 +799,26 @@
 
         const match = existingByKey.get(key);
         if (match){
-          await updateDoc(doc(db,'users',currentUser.uid,'elders',match.id), payload);
+          await updateDoc(userDoc('elders', match.id), payload);
         } else {
           const newId = firestoreSafeId(key);
-          await setDoc(doc(db,'users',currentUser.uid,'elders',newId), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 }, { merge:true });
+          await setDoc(userDoc('elders', newId), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 }, { merge:true });
           existingByKey.set(key, { id:newId, ...payload });
         }
       }
 
       for (const [key, e] of existingByKey){
         if (!seenKeys.has(key)){
-          await updateDoc(doc(db,'users',currentUser.uid,'elders',e.id), { active:false });
+          await updateDoc(userDoc('elders', e.id), { active:false });
         }
       }
       alert('Import complete (idempotent).');
-    };
+    }, 'import data');
 
     /* ---------- Fix duplicates ---------- */
-    window.fixDuplicates = async ()=>{
+    window.fixDuplicates = guardAction(async ()=>{
       if (!confirm('Merge duplicates (preserve visit history)?')) return;
-      const uid = currentUser?.uid; if (!uid) return alert('Sign in first.');
+      requireUser();
 
       const es = await getDocs(userCol('elders'));
       const items = es.docs.map(d=>({ id:d.id, ...d.data() }));
@@ -847,7 +866,7 @@
           if (dup.id === keep.id) continue;
 
           const vs = await getDocs(query(userCol('visits'), where('elderId','==', dup.id)));
-          for (const v of vs.docs){ await updateDoc(doc(db,'users',uid,'visits',v.id), { elderId: keep.id }); }
+          for (const v of vs.docs){ await updateDoc(userDoc('visits', v.id), { elderId: keep.id }); }
 
           const dupSchedules = await getDocs(query(userCol('schedule'), where('elderId','==', dup.id)));
           const keeperSchedules = await ensureKeeperSchedules(keep.id);
@@ -869,15 +888,15 @@
                 if ((current === undefined || current === null || current === '') && value !== undefined && value !== null && value !== '') updates[key] = value;
               }
               if (Object.keys(updates).length){
-                await updateDoc(doc(db,'users',uid,'schedule',existing.id), updates);
+                await updateDoc(userDoc('schedule', existing.id), updates);
                 Object.assign(existing.data, updates);
               }
-              await deleteDoc(doc(db,'users',uid,'schedule',sched.id));
+              await deleteDoc(userDoc('schedule', sched.id));
             } else {
               const updates = { elderId: keep.id };
               if (keeperName && (schedData.elderName||'').trim() !== keeperName) updates.elderName = keeperName;
               if (Object.keys(updates).length){
-                await updateDoc(doc(db,'users',uid,'schedule',sched.id), updates);
+                await updateDoc(userDoc('schedule', sched.id), updates);
                 Object.assign(schedData, updates);
               }
               keeperSchedules.push({ id: sched.id, data: schedData });
@@ -897,16 +916,16 @@
             // Keep the merged elder active if any source record is still active.
             active: (keep.active!==false || dup.active!==false)
           };
-          await updateDoc(doc(db,'users',uid,'elders',keep.id), merged);
-          await deleteDoc(doc(db,'users',uid,'elders',dup.id));
+          await updateDoc(userDoc('elders', keep.id), merged);
+          await deleteDoc(userDoc('elders', dup.id));
           mergedCount++;
         }
       }
       alert(`Fixed ${mergedCount} duplicate record(s).`);
-    };
+    }, 'fix duplicates');
 
     /* ---------- Scheduling helpers ---------- */
-    window.confirmVisitThisWed = async (elderId)=>{
+    window.confirmVisitThisWed = guardAction(async (elderId)=>{
       const e = elders.get(elderId); if (!e) return;
       const monday = getMonday();
       await addDoc(userCol('schedule'), {
@@ -917,18 +936,18 @@
         status: 'Confirmed'
       });
       alert('Confirmed for Wednesday.');
-    };
-    window.unschedule = async (scheduleId)=>{
+    }, 'confirm visit');
+    window.unschedule = guardAction(async (scheduleId)=>{
       if (!confirm('Remove from this week’s plan?')) return;
-      await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
-    };
-    window.markVisitedFromSchedule = async (scheduleId)=>{
+      await deleteDoc(userDoc('schedule', scheduleId));
+    }, 'unschedule visit');
+    window.markVisitedFromSchedule = guardAction(async (scheduleId)=>{
       const s = schedules.find(x=>x.id===scheduleId); if (!s) return;
       const e = elders.get(s.elderId); if (!e) return;
       if (!confirm(`Mark ${e.preferredName||e.lastName||'this elder'} as visited (this Wed)?`)) return;
       const wed = wednesdayOfWeek(s.weekOf);
       // update elder
-      await updateDoc(doc(db,'users',currentUser.uid,'elders',s.elderId), {
+      await updateDoc(userDoc('elders', s.elderId), {
         lastVisited: wed,
         attemptsSinceLastVisit: 0,
         lastContacted: serverTimestamp()
@@ -939,11 +958,11 @@
         outcome: 'Visited', visitors: 'Presidency', notes:'(Auto from schedule)', createdAt: new Date()
       });
       // mark schedule visited (optional)
-      await updateDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId), { status:'Visited' });
+      await updateDoc(userDoc('schedule', scheduleId), { status:'Visited' });
       alert('Marked visited.');
-    };
+    }, 'mark visit from schedule');
 
-    window.pickThisWeek = async ()=>{
+    window.pickThisWeek = guardAction(async ()=>{
       const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText);
       arr.forEach(e => e._score = nextUpScore(e));
       arr.sort((a,b)=> b._score - a._score);
@@ -952,7 +971,7 @@
       const monday = getMonday();
       await addDoc(userCol('schedule'), { weekOf:monday, elderId:chosen.id, elderName:(chosen.preferredName||'')+' '+(chosen.lastName||''), createdAt:new Date(), status:'Planned' });
       alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||'' ));
-    };
+    }, 'pick weekly visit');
 
     /* ---------- Start ---------- */
     window.showView('next');
