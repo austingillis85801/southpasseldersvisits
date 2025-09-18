@@ -228,6 +228,16 @@
     const q = id => document.getElementById(id);
     const cleanPhone = s => (s||'').replace(/\D/g,'');
     const norm = s => (s||'').toString().trim().toLowerCase();
+    const defaultErrorMessage = 'Something went wrong. Please try again.';
+    const runAction = (asyncFn, message = defaultErrorMessage) => async (...args) => {
+      try {
+        return await asyncFn(...args);
+      } catch (error) {
+        console.error('Action failed:', error);
+        const msg = typeof message === 'function' ? message(error, ...args) : message;
+        alert(msg || defaultErrorMessage);
+      }
+    };
     const firestoreSafeId = (key)=>{
       const raw = (key||'').toString();
       let clean = raw.normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
@@ -320,9 +330,15 @@
       updateAuthUI(user);
       if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length=0; schedules.length=0; renderAll(); }
     });
-    window.signIn = async ()=>{ try{ await signInWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim()); }catch(e){ alert('Sign-in failed: '+(e.message||e.code)); } };
-    window.create = async ()=>{ try{ await createUserWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim()); }catch(e){ alert('Create failed: '+(e.message||e.code)); } };
-    window.signOut = async ()=>{ try{ await signOut(auth); }catch(e){ alert('Sign-out failed: '+(e.message||e.code)); } };
+    window.signIn = runAction(async ()=>{
+      await signInWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim());
+    }, 'Sign-in failed. Please check your credentials and try again.');
+    window.create = runAction(async ()=>{
+      await createUserWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim());
+    }, 'Account creation failed. Please review your details and try again.');
+    window.signOut = runAction(async ()=>{
+      await signOut(auth);
+    }, 'Sign-out failed. Please try again.');
 
     /* ---------- Sorting & Search ---------- */
     let sortBy='name', sortDir='asc'; // default: first name A→Z
@@ -572,7 +588,7 @@
     }
 
     /* ---------- Actions ---------- */
-    window.textAndTrack = async (elderId)=>{
+    window.textAndTrack = runAction(async (elderId)=>{
       const e = elders.get(elderId);
       if (!e || !e.phone) return;
 
@@ -592,9 +608,9 @@
       const name = (e.preferredName || e.lastName || 'there');
       const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(smsBodyFor(name))}`;
       setTimeout(()=>{ window.location.href = smsUrl; }, 100);
-    };
+    }, 'Unable to send that text. Please check your connection and try again.');
 
-    window.saveVisit = async ()=>{
+    window.saveVisit = runAction(async ()=>{
       const elderId = q('logElderSelect').value;
       const dateStr = q('logDate').value;
       const outcome = q('logOutcome').value;
@@ -615,27 +631,27 @@
       await updateDoc(ref, update);
       q('logNotes').value='';
       alert('Saved.');
-    };
+    }, 'Unable to save the visit. Please try again.');
 
-    window.quickLogVisit = async (elderId)=>{
+    window.quickLogVisit = runAction(async (elderId)=>{
       const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
       await updateDoc(ref, { lastVisited: serverTimestamp(), lastContacted: serverTimestamp(), attemptsSinceLastVisit: 0 });
       await addDoc(userCol('visits'), {
         elderId, visitDate: new Date().toISOString().slice(0,10),
         outcome: 'Visited', visitors: 'Presidency', notes:'(Quick log)', createdAt: new Date()
       });
-    };
+    }, 'Unable to quick-log that visit. Please try again.');
 
-    window.noAnswer = async (elderId)=>{
+    window.noAnswer = runAction(async (elderId)=>{
       const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
       await updateDoc(ref, { lastContacted: serverTimestamp(), attemptsSinceLastVisit: increment(1) });
       await addDoc(userCol('visits'), {
         elderId, visitDate: new Date().toISOString().slice(0,10),
         outcome: 'No answer', visitors: 'Presidency', notes:'', createdAt: new Date()
       });
-    };
+    }, 'Unable to record the no-answer attempt. Please try again.');
 
-    window.addElderPrompt = async ()=>{
+    window.addElderPrompt = runAction(async ()=>{
       const name = prompt('Preferred name and last name (e.g., John Doe)?');
       if (!name) return;
       const phone = prompt('Phone (optional)') || '';
@@ -645,9 +661,9 @@
         preferredName, lastName, phone, active: true, firstSeen: new Date(),
         attemptsSinceLastVisit: 0, doNotText: false
       });
-    };
+    }, 'Unable to add that elder. Please try again.');
 
-    window.editElder = async (id)=>{
+    window.editElder = runAction(async (id)=>{
       const e = elders.get(id); if (!e) return;
       const name = prompt('Edit name', `${e.preferredName||''} ${e.lastName||''}`) || '';
       const phone = prompt('Edit phone', e.phone||'') || '';
@@ -656,9 +672,9 @@
       const lastName = rest.join(' ');
       const ref = doc(db, 'users', currentUser.uid, 'elders', id);
       await updateDoc(ref, { preferredName, lastName, phone, doNotText });
-    };
+    }, 'Unable to update that elder. Please try again.');
 
-    window.toggleArchive = async (id, isInactive)=>{
+    window.toggleArchive = runAction(async (id, isInactive)=>{
       const ref = doc(db, 'users', currentUser.uid, 'elders', id);
       if (isInactive) {
         await updateDoc(ref, { active: true });
@@ -666,10 +682,10 @@
         if (!confirm('Archive this elder (set inactive)?')) return;
         await updateDoc(ref, { active: false });
       }
-    };
+    }, 'Unable to change the archive state. Please try again.');
 
     // Adjust menu: reset visit or remove last ask (with double-check)
-    window.adjustMenu = async (id)=>{
+    window.adjustMenu = runAction(async (id)=>{
       const e = elders.get(id); if (!e) return;
       const choice = prompt(
         'Type 1 or 2 (or Cancel):\n' +
@@ -701,14 +717,14 @@
       } else {
         // no-op
       }
-    };
+    }, 'Unable to adjust that record. Please try again.');
 
     /* ---------- Keys (no householdId) ---------- */
     const keyFromDoc = (e) => [ cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||'')) ].join('|');
     const keyFromRow = (r) => [ cleanPhone(r.Phone||r.phone||''), norm(r.Email||r.email||''), norm((r.PreferredName||r.FirstName||'')+'|'+(r.LastName||'')) ].join('|');
 
     /* ---------- Export backup / CSV ---------- */
-    window.exportBackup = async ()=>{
+    window.exportBackup = runAction(async ()=>{
       const [es, vs] = await Promise.all([ getDocs(userCol('elders')), getDocs(userCol('visits')) ]);
       const data = {
         elders: es.docs.map(d=>({id:d.id,...d.data()})),
@@ -717,8 +733,8 @@
       const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'eq-visit-backup.json'; a.click(); URL.revokeObjectURL(a.href);
-    };
-    window.exportCsv = async ()=>{
+    }, 'Unable to export the backup. Please try again.');
+    window.exportCsv = runAction(async ()=>{
       const snap = await getDocs(userCol('elders'));
       const rows = snap.docs.map(d=>{
         const e = { id:d.id, ...d.data() };
@@ -741,7 +757,7 @@
       const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'elders_export.csv'; a.click(); URL.revokeObjectURL(a.href);
-    };
+    }, 'Unable to export the CSV. Please try again.');
 
     /* ---------- Import (idempotent) ---------- */
     function parseCsv(file){
@@ -750,7 +766,7 @@
           complete: (res)=>resolve(res.data), error: reject });
       });
     }
-    window.importCsv = async ()=>{
+    window.importCsv = runAction(async ()=>{
       const file = q('csvFile').files[0];
       if (!file) return alert('Choose a CSV file.');
       const rows = await parseCsv(file);
@@ -794,10 +810,10 @@
         }
       }
       alert('Import complete (idempotent).');
-    };
+    }, 'Unable to import that CSV. Please try again.');
 
     /* ---------- Fix duplicates ---------- */
-    window.fixDuplicates = async ()=>{
+    window.fixDuplicates = runAction(async ()=>{
       if (!confirm('Merge duplicates (preserve visit history)?')) return;
       const uid = currentUser?.uid; if (!uid) return alert('Sign in first.');
 
@@ -903,10 +919,10 @@
         }
       }
       alert(`Fixed ${mergedCount} duplicate record(s).`);
-    };
+    }, 'Unable to fix duplicates right now. Please try again.');
 
     /* ---------- Scheduling helpers ---------- */
-    window.confirmVisitThisWed = async (elderId)=>{
+    window.confirmVisitThisWed = runAction(async (elderId)=>{
       const e = elders.get(elderId); if (!e) return;
       const monday = getMonday();
       await addDoc(userCol('schedule'), {
@@ -917,12 +933,12 @@
         status: 'Confirmed'
       });
       alert('Confirmed for Wednesday.');
-    };
-    window.unschedule = async (scheduleId)=>{
+    }, 'Unable to confirm that visit. Please try again.');
+    window.unschedule = runAction(async (scheduleId)=>{
       if (!confirm('Remove from this week’s plan?')) return;
       await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
-    };
-    window.markVisitedFromSchedule = async (scheduleId)=>{
+    }, 'Unable to unschedule that visit. Please try again.');
+    window.markVisitedFromSchedule = runAction(async (scheduleId)=>{
       const s = schedules.find(x=>x.id===scheduleId); if (!s) return;
       const e = elders.get(s.elderId); if (!e) return;
       if (!confirm(`Mark ${e.preferredName||e.lastName||'this elder'} as visited (this Wed)?`)) return;
@@ -941,9 +957,9 @@
       // mark schedule visited (optional)
       await updateDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId), { status:'Visited' });
       alert('Marked visited.');
-    };
+    }, 'Unable to mark that visit right now. Please try again.');
 
-    window.pickThisWeek = async ()=>{
+    window.pickThisWeek = runAction(async ()=>{
       const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText);
       arr.forEach(e => e._score = nextUpScore(e));
       arr.sort((a,b)=> b._score - a._score);
@@ -952,7 +968,7 @@
       const monday = getMonday();
       await addDoc(userCol('schedule'), { weekOf:monday, elderId:chosen.id, elderName:(chosen.preferredName||'')+' '+(chosen.lastName||''), createdAt:new Date(), status:'Planned' });
       alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||'' ));
-    };
+    }, 'Unable to pick an elder this week. Please try again.');
 
     /* ---------- Start ---------- */
     window.showView('next');
