@@ -633,8 +633,11 @@
         attemptsSinceLastVisit: increment(1)
       });
 
-      const name = (e.preferredName || e.lastName || 'there');
-      const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(smsBodyFor(name))}`;
+      const rawName = (e.preferredName ? e.preferredName.trim() : '')
+        || (e.lastName ? e.lastName.trim() : '')
+        || 'there';
+      const firstName = rawName.split(/\s+/)[0] || 'there';
+      const smsUrl = `sms:+1${cleanPhone(e.phone)}?&body=${encodeURIComponent(smsBodyFor(firstName))}`;
       setTimeout(()=>{ window.location.href = smsUrl; }, 100);
     }, 'Unable to send that text. Please check your connection and try again.');
 
