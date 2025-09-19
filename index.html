@@ -20,6 +20,8 @@
     .grow { flex:1; min-width:.5rem; }
     .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:1rem; }
     .toolbar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+    .toggle-inactive { display:flex; align-items:center; gap:.35rem; margin-left:.5rem; justify-content:flex-start; }
+    .toggle-inactive span { white-space:nowrap; display:inline-flex; align-items:center; }
     .btn { background:var(--brand); color:#fff; border:0; padding:.55rem .9rem; border-radius:12px; cursor:pointer; }
     .btn.outline { background:transparent; color:var(--brand); border:1px solid var(--brand); }
     .btn.light { background:#e5edff; color:var(--brand); }
@@ -40,6 +42,7 @@
     .thbtn span { margin-left:.25rem; color:#6b7280; }
     tr.inactive { opacity:.55; }
     td.namecell { display:flex; align-items:center; gap:.5rem; font-weight:600; }
+    #view-elders td.actions { display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; }
     #authBox { display:flex; gap:.5rem; align-items:center; margin-left:auto; flex-wrap:wrap; }
     #currentUser { max-width:45vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#374151; }
 
@@ -55,13 +58,20 @@
       .card { padding:.75rem; }
       .toolbar { gap:.5rem; flex-direction:column; align-items:stretch; }
       .toolbar input, .toolbar select, .toolbar button { width:100%; }
+      #view-elders .toolbar .toggle-inactive { width:auto; margin:0; justify-content:flex-start; align-self:flex-start; }
+      #view-elders .toolbar .toggle-inactive span { white-space:normal; }
       #view-elders table thead { display:none; }
       #view-elders table, #view-elders tbody, #view-elders tr, #view-elders td { display:block; width:100%; }
-      #view-elders tbody tr { background:#fff; border:1px solid var(--line); border-radius:12px; padding:.5rem .75rem; margin:.75rem 0; }
-      #view-elders tbody td { display:flex; justify-content:space-between; align-items:center; border:0; padding:.35rem 0; }
-      #view-elders tbody td::before { content:attr(data-label); font-weight:600; color:#6b7280; margin-right:1rem; }
-      #view-elders tbody td.namecell { font-size:1rem; padding-bottom:.4rem; }
-      #view-elders tbody td.namecell::before { content:'Name'; }
+      #view-elders tbody tr { background:#fff; border:1px solid var(--line); border-radius:12px; padding:.75rem; margin:.5rem 0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.5rem .75rem; align-items:start; }
+      #view-elders tbody td { border:0; padding:0; display:flex; flex-direction:column; gap:.15rem; align-items:flex-start; }
+      #view-elders tbody td::before { content:attr(data-label); font-size:.7rem; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+      #view-elders tbody td.namecell { grid-column:1 / -1; font-size:1.05rem; padding-bottom:0; }
+      #view-elders tbody td.namecell::before { display:none; }
+      #view-elders tbody td.actions { grid-column:1 / -1; width:100%; }
+      #view-elders tbody td.actions::before { display:none; }
+      #view-elders tbody td.actions { display:flex; flex-wrap:wrap; gap:.4rem; }
+      #view-elders tbody td.actions .btn { flex:1 1 calc(50% - .3rem); min-width:7rem; }
+      #view-elders tbody td.actions .btn.danger { flex-basis:100%; }
       #currentUser { max-width:60vw; }
     }
 
@@ -131,8 +141,9 @@
           <option value="phone">Phone</option>
         </select>
         <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
-        <label style="display:flex;align-items:center;gap:.35rem;margin-left:.5rem">
-          <input type="checkbox" id="hideInactive" checked> Hide inactive
+        <label class="toggle-inactive">
+          <input type="checkbox" id="hideInactive" checked>
+          <span>Hide inactive</span>
         </label>
         <div class="grow"></div>
         <span id="eldersCount" class="muted"></span>
@@ -591,7 +602,7 @@
           <td data-label="Attempts">${attemptsHtml}</td>
           <td data-label="Asked">${askedHtml}</td>
           <td data-label="Status">${statusPill}</td>
-          <td data-label="Actions" style="display:flex; gap:.35rem; flex-wrap:wrap">
+          <td class="actions" data-label="Actions">
             <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
             <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
             <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
