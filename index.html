@@ -287,6 +287,17 @@
       const diff = x.getDate() - day + (day===0 ? -6 : 1);
       x.setDate(diff); x.setHours(0,0,0,0); return x;
     }
+    function getScheduleMonday(d=new Date()){
+      const base = new Date(d);
+      base.setHours(0,0,0,0);
+      const day = base.getDay(); // 0=Sun, 1=Mon, ...
+      if (day === 0){
+        base.setDate(base.getDate() + 1); // Sunday -> next Monday
+      } else if (day >= 4){
+        base.setDate(base.getDate() + (8 - day)); // Thu-Sat -> upcoming Monday
+      }
+      return getMonday(base);
+    }
     function wednesdayOfWeek(weekOfDate){
       const d = weekOfDate?.toDate ? weekOfDate.toDate() : new Date(weekOfDate);
       const w = new Date(d);
@@ -458,7 +469,7 @@
       const grid = q('nextGrid');
       const tokens = norm(q('searchNext').value).split(/\s+/).filter(Boolean);
       const arr = Array.from(elders.values()).map(e=>({ ...e, _score: nextUpScore(e) }))
-        .filter(e=> e._score > -999 && filterByTokens(e, tokens))
+        .filter(e=> e._score > -999 && filterByTokens(e, tokens) && cleanPhone(e.phone||'').length)
         .sort((a,b)=> b._score - a._score)
         .slice(0,18);
 
@@ -504,7 +515,7 @@
         .slice(0,12);
       if (!items.length){ container.innerHTML = '<div class="subtle">None yet.</div>'; return; }
 
-      const thisMon = getMonday();
+      const thisMon = getScheduleMonday();
       const already = new Set(
         schedules
           .filter(s => asMs(s.weekOf) === thisMon.getTime())
@@ -533,7 +544,7 @@
 
     function renderThisWeek(){
       const container = q('thisWeek'); if (!container) return;
-      const thisMon = getMonday();
+      const thisMon = getScheduleMonday();
       const list = schedules
         .filter(s => asMs(s.weekOf) === thisMon.getTime())
         .sort((a,b)=> (a.status||'').localeCompare(b.status||''));
@@ -966,7 +977,7 @@
     /* ---------- Scheduling helpers ---------- */
     window.confirmVisitThisWed = runAction(async (elderId)=>{
       const e = elders.get(elderId); if (!e) return;
-      const monday = getMonday();
+      const monday = getScheduleMonday();
       await addDoc(userCol('schedule'), {
         weekOf: monday,
         elderId,
@@ -996,18 +1007,18 @@
         elderId: s.elderId, visitDate: wed.toISOString().slice(0,10),
         outcome: 'Visited', visitors: 'Presidency', notes:'(Auto from schedule)', createdAt: new Date()
       });
-      // mark schedule visited (optional)
-      await updateDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId), { status:'Visited' });
+      // remove from schedule list now that it is complete
+      await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
       alert('Marked visited.');
     }, 'Unable to mark that visit right now. Please try again.');
 
     window.pickThisWeek = runAction(async ()=>{
-      const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText);
+      const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText && cleanPhone(e.phone||'').length);
       arr.forEach(e => e._score = nextUpScore(e));
       arr.sort((a,b)=> b._score - a._score);
       if (!arr.length) return alert('No eligible elders.');
       const chosen = arr[0];
-      const monday = getMonday();
+      const monday = getScheduleMonday();
       await addDoc(userCol('schedule'), { weekOf:monday, elderId:chosen.id, elderName:(chosen.preferredName||'')+' '+(chosen.lastName||''), createdAt:new Date(), status:'Planned' });
       alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||'' ));
     }, 'Unable to pick an elder this week. Please try again.');
