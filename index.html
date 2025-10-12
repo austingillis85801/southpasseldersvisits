@@ -564,6 +564,7 @@
             </div>
             <div style="display:flex; gap:.5rem">
               <button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>
+              <button class="btn outline" onclick="scheduleNextWeek('${s.id}')">Next Wed</button>
               <button class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>
             </div>
           </div>`;
@@ -991,6 +992,43 @@
       if (!confirm('Remove from this week’s plan?')) return;
       await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
     }, 'Unable to unschedule that visit. Please try again.');
+    const nextWeekMonday = (weekOf)=>{
+      const monday = weekOf?.toDate ? weekOf.toDate() : new Date(weekOf);
+      const next = new Date(monday);
+      next.setDate(next.getDate() + 7);
+      next.setHours(0,0,0,0);
+      return next;
+    };
+    window.scheduleNextWeek = runAction(async (scheduleId)=>{
+      const s = schedules.find(x=>x.id===scheduleId);
+      if (!s) return;
+      const e = elders.get(s.elderId);
+      if (!e) return;
+      if (!confirm(`Move ${e.preferredName||e.lastName||'this elder'} to next Wednesday?`)) return;
+
+      const upcomingMonday = nextWeekMonday(s.weekOf);
+      const existing = schedules.find(x=> x.elderId===s.elderId && asMs(x.weekOf) === upcomingMonday.getTime());
+      const plannedStatusWeight = status => ({ Visited:3, Confirmed:2, Planned:1 }[status] || 0);
+      const nameValue = (e.preferredName||'')+' '+(e.lastName||'');
+      const basePayload = {
+        weekOf: upcomingMonday,
+        elderId: s.elderId,
+        elderName: nameValue
+      };
+
+      if (existing){
+        const updates = { weekOf: upcomingMonday };
+        const trimmedExisting = (existing.elderName||'').trim();
+        if (nameValue.trim() && trimmedExisting !== nameValue.trim()) updates.elderName = nameValue;
+        if (plannedStatusWeight(existing.status) < plannedStatusWeight('Planned')) updates.status = 'Planned';
+        await updateDoc(doc(db,'users',currentUser.uid,'schedule',existing.id), updates);
+      } else {
+        await addDoc(userCol('schedule'), { ...basePayload, status:'Planned', createdAt: new Date() });
+      }
+
+      await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
+      alert('Moved to next Wednesday.');
+    }, 'Unable to move that visit. Please try again.');
     window.markVisitedFromSchedule = runAction(async (scheduleId)=>{
       const s = schedules.find(x=>x.id===scheduleId); if (!s) return;
       const e = elders.get(s.elderId); if (!e) return;
