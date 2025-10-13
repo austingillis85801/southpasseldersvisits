@@ -542,32 +542,34 @@
       }).join('');
     }
 
-    function renderThisWeek(){
-      const container = q('thisWeek'); if (!container) return;
-      const thisMon = getScheduleMonday();
-      const list = schedules
-        .filter(s => asMs(s.weekOf) === thisMon.getTime())
-        .sort((a,b)=> (a.status||'').localeCompare(b.status||''));
+      function renderThisWeek(){
+        const container = q('thisWeek'); if (!container) return;
+        const scheduleMon = getScheduleMonday();
+        const currentMon = getMonday();
+        const weekMatches = new Set([scheduleMon.getTime(), currentMon.getTime()]);
+        const list = schedules
+          .filter(s => weekMatches.has(asMs(s.weekOf)))
+          .sort((a,b)=> (a.status||'').localeCompare(b.status||''));
 
-      if (!list.length){ container.innerHTML = '<div class="subtle">No one scheduled yet.</div>'; return; }
+        if (!list.length){ container.innerHTML = '<div class="subtle">No one scheduled yet.</div>'; return; }
 
-      container.innerHTML = list.map(s=>{
-        const e = elders.get(s.elderId);
-        const rawName = e ? [e.preferredName, e.lastName].filter(Boolean).join(' ').trim() : (s.elderName||'—');
-        const nameHtml = escapeHtml(rawName);
-        const statusHtml = escapeHtml(s.status||'Planned');
-        return `
-          <div class="row">
-            <div>
-              <div class="who">${nameHtml}</div>
-              <div class="subtle">${statusHtml}</div>
-            </div>
-            <div style="display:flex; gap:.5rem">
-              <button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>
-              <button class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>
-            </div>
-          </div>`;
-      }).join('');
+        container.innerHTML = list.map(s=>{
+          const e = elders.get(s.elderId);
+          const rawName = e ? [e.preferredName, e.lastName].filter(Boolean).join(' ').trim() : (s.elderName||'—');
+          const nameHtml = escapeHtml(rawName);
+          const statusHtml = escapeHtml(s.status||'Planned');
+          return `
+            <div class="row">
+              <div>
+                <div class="who">${nameHtml}</div>
+                <div class="subtle">${statusHtml}</div>
+              </div>
+              <div style="display:flex; gap:.5rem">
+                <button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>
+                <button class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>
+              </div>
+            </div>`;
+        }).join('');
     }
 
     /* ---------- Directory ---------- */
