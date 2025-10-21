@@ -81,6 +81,10 @@
     .list { display:flex; flex-direction:column; gap:.5rem; }
     .row { display:flex; gap:.5rem; align-items:center; justify-content:space-between; }
     .row .who { font-weight:600; }
+    .week-header { display:flex; justify-content:space-between; align-items:center; gap:.5rem; flex-wrap:wrap; }
+    .week-nav { display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; justify-content:flex-end; }
+    .week-nav-label { font-size:.8rem; color:var(--muted); white-space:nowrap; }
+    .week-nav-btn { padding:.35rem .65rem; }
   </style>
 </head>
 <body>
@@ -113,7 +117,14 @@
           <div id="recentTexts" class="list"></div>
         </div>
         <div class="card" style="padding:.75rem">
-          <div class="section-title">This week’s visits (Wed)</div>
+          <div class="week-header">
+            <div class="section-title" id="thisWeekHeading">This week’s visits (Wed)</div>
+            <div class="week-nav">
+              <button class="btn light week-nav-btn" onclick="changeScheduleWeek(-1)" aria-label="Previous week">◀</button>
+              <span class="week-nav-label" id="thisWeekNavLabel"></span>
+              <button class="btn light week-nav-btn" onclick="changeScheduleWeek(1)" aria-label="Next week">▶</button>
+            </div>
+          </div>
           <div id="thisWeek" class="list"></div>
         </div>
       </div>
@@ -121,7 +132,7 @@
       <div class="toolbar">
         <input id="searchNext" class="input" placeholder="Search name/phone/email/address">
         <button class="btn outline" id="btnSearchNext">Search</button>
-        <button class="btn outline" onclick="pickThisWeek()">Pick next elder (for this week)</button>
+        <button class="btn outline" onclick="pickThisWeek()" id="pickWeekBtn">Pick elder for shown week</button>
         <div class="grow"></div>
         <span id="yearRemaining" class="muted"></span>
       </div>
@@ -238,6 +249,7 @@
     const elders = new Map();
     const visits = [];
     const schedules = []; // users/{uid}/schedule
+    let selectedWeekMonday = getScheduleMonday();
 
     const q = id => document.getElementById(id);
     const cleanPhone = s => (s||'').replace(/\D/g,'');
@@ -305,6 +317,19 @@
       w.setHours(19,0,0,0); // 7:00pm for flavor (optional)
       return w;
     }
+    const shortDate = (d)=> d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    const weekRangeLabel = (monday)=>{
+      const start = new Date(monday);
+      const end = new Date(monday);
+      end.setDate(end.getDate()+6);
+      return `${shortDate(start)} – ${shortDate(end)}`;
+    };
+    const shiftWeek = (monday, deltaWeeks)=>{
+      const next = new Date(monday);
+      next.setDate(next.getDate() + 7*deltaWeeks);
+      next.setHours(0,0,0,0);
+      return getMonday(next);
+    };
 
     function updateAuthUI(user){
       const signedOut = !user;
@@ -463,7 +488,7 @@
     function renderNext(){
       // panels at top
       renderRecentTexts();
-      renderThisWeek();
+      renderThisWeek(selectedWeekMonday);
 
       // Top candidates
       const grid = q('nextGrid');
@@ -515,7 +540,11 @@
         .slice(0,12);
       if (!items.length){ container.innerHTML = '<div class="subtle">None yet.</div>'; return; }
 
-      const thisMon = getScheduleMonday();
+      const currentWeek = getScheduleMonday();
+      const thisMon = selectedWeekMonday || currentWeek;
+      const weekMs = thisMon.getTime();
+      const isPastSelected = weekMs < currentWeek.getTime();
+      const confirmLabel = `Confirm for Wed ${shortDate(wednesdayOfWeek(thisMon))}`;
       const already = new Set(
         schedules
           .filter(s => asMs(s.weekOf) === thisMon.getTime())
@@ -526,7 +555,11 @@
         const displayName = [e.preferredName, e.lastName].filter(Boolean).join(' ').trim();
         const nameHtml = escapeHtml(displayName);
         const textDateHtml = escapeHtml(new Date(lastTx).toLocaleDateString());
-        const canConfirm = !already.has(e.id);
+        const alreadyScheduled = already.has(e.id);
+        const canConfirm = !alreadyScheduled && !isPastSelected;
+        const buttonClass = canConfirm ? 'btn' : 'btn outline';
+        const buttonLabel = canConfirm ? escapeHtml(confirmLabel) : escapeHtml(alreadyScheduled ? 'Scheduled' : 'Past week');
+        const buttonAction = canConfirm ? `onclick="confirmVisitThisWed('${e.id}')"` : 'disabled';
         return `
           <div class="row">
             <div>
@@ -534,42 +567,113 @@
               <div class="subtle">Texted ${textDateHtml}</div>
             </div>
             <div>
-              <button class="btn ${canConfirm?'':'outline'}" ${canConfirm?`onclick="confirmVisitThisWed('${e.id}')"`:'disabled'}>
-                ${canConfirm?'Confirm for Wed':'Scheduled'}
+              <button class="${buttonClass}" ${buttonAction}>
+                ${buttonLabel}
               </button>
             </div>
           </div>`;
       }).join('');
     }
 
-    function renderThisWeek(){
+    function renderThisWeek(targetWeek){
       const container = q('thisWeek'); if (!container) return;
-      const thisMon = getScheduleMonday();
-      const list = schedules
-        .filter(s => asMs(s.weekOf) === thisMon.getTime())
-        .sort((a,b)=> (a.status||'').localeCompare(b.status||''));
+      const heading = q('thisWeekHeading');
+      const navLabelEl = q('thisWeekNavLabel');
+      const pickBtn = q('pickWeekBtn');
 
-      if (!list.length){ container.innerHTML = '<div class="subtle">No one scheduled yet.</div>'; return; }
+      const fallback = selectedWeekMonday || getScheduleMonday();
+      const rawWeek = targetWeek?.toDate ? targetWeek.toDate() : targetWeek;
+      const normalized = getMonday(rawWeek || fallback);
+      const monday = new Date(normalized.getTime());
+      const currentMonday = getScheduleMonday();
+      const mondayMs = monday.getTime();
+      const isThisWeek = mondayMs === currentMonday.getTime();
+      const isPastWeek = mondayMs < currentMonday.getTime();
+
+      selectedWeekMonday = monday;
+
+      const wed = wednesdayOfWeek(monday);
+      if (heading){
+        const headingText = isThisWeek
+          ? `This week’s visits (${shortDate(wed)})`
+          : `Week of ${shortDate(monday)} (Wed ${shortDate(wed)})`;
+        heading.textContent = headingText;
+      }
+      if (navLabelEl){
+        navLabelEl.textContent = weekRangeLabel(monday);
+      }
+      if (pickBtn){
+        pickBtn.textContent = isThisWeek
+          ? 'Pick elder for this week'
+          : `Pick elder for week of ${shortDate(monday)}`;
+        pickBtn.disabled = isPastWeek;
+        pickBtn.title = isPastWeek ? 'Cannot pick elders for past weeks' : '';
+      }
+
+      const list = schedules
+        .filter(s => asMs(s.weekOf) === mondayMs)
+        .sort((a,b)=>{
+          const statusOrder = { confirmed:0, planned:1, visited:2 };
+          const aKey = (a.status||'').toString().toLowerCase();
+          const bKey = (b.status||'').toString().toLowerCase();
+          const diff = (statusOrder[aKey] ?? 99) - (statusOrder[bKey] ?? 99);
+          if (diff !== 0) return diff;
+          const nameA = (a.elderName||'').toString();
+          const nameB = (b.elderName||'').toString();
+          return collator.compare(nameA, nameB);
+        });
+
+      if (!list.length){
+        container.innerHTML = '<div class="subtle">No one scheduled yet.</div>';
+        return;
+      }
+
+      const statusClass = (status)=>{
+        const key = (status||'').toString().toLowerCase();
+        if (key === 'visited' || key === 'confirmed') return 'ok';
+        if (key === 'planned' || key === 'reschedule' || key === 'rescheduled') return 'warn';
+        if (key === 'cancelled' || key === 'canceled' || key === 'dropped') return 'bad';
+        return 'gray';
+      };
 
       container.innerHTML = list.map(s=>{
         const e = elders.get(s.elderId);
         const rawName = e ? [e.preferredName, e.lastName].filter(Boolean).join(' ').trim() : (s.elderName||'—');
         const nameHtml = escapeHtml(rawName);
-        const statusHtml = escapeHtml(s.status||'Planned');
+        const statusText = s.status || 'Planned';
+        const statusHtml = escapeHtml(statusText);
+        const badgeClass = statusClass(statusText);
+        const wedLabel = escapeHtml(shortDate(wed));
+        const actions = [];
+        if (!isPastWeek){
+          if (isThisWeek){
+            actions.push(`<button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>`);
+          }
+          actions.push(`<button class="btn outline" onclick="scheduleNextWeek('${s.id}')">Next Wed</button>`);
+          actions.push(`<button class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>`);
+        }
+        const actionsHtml = actions.length
+          ? `<div style="display:flex; gap:.5rem; flex-wrap:wrap; justify-content:flex-end">${actions.join('')}</div>`
+          : '<div class="subtle muted" style="display:flex; align-items:center; justify-content:flex-end">Past week</div>';
         return `
           <div class="row">
-            <div>
-              <div class="who">${nameHtml}</div>
-              <div class="subtle">${statusHtml}</div>
+            <div style="display:flex; flex-direction:column; gap:.25rem">
+              <div style="display:flex; align-items:center; gap:.4rem; flex-wrap:wrap">
+                <div class="who">${nameHtml}</div>
+                <span class="pill ${badgeClass}">${statusHtml}</span>
+              </div>
+              <div class="subtle">Wed ${wedLabel}</div>
             </div>
-            <div style="display:flex; gap:.5rem">
-              <button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>
-              <button class="btn outline" onclick="scheduleNextWeek('${s.id}')">Next Wed</button>
-              <button class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>
-            </div>
+            ${actionsHtml}
           </div>`;
       }).join('');
     }
+
+    window.changeScheduleWeek = (delta)=>{
+      selectedWeekMonday = shiftWeek(selectedWeekMonday || getScheduleMonday(), delta);
+      renderRecentTexts();
+      renderThisWeek(selectedWeekMonday);
+    };
 
     /* ---------- Directory ---------- */
     window.renderElders = renderElders;
@@ -978,7 +1082,7 @@
     /* ---------- Scheduling helpers ---------- */
     window.confirmVisitThisWed = runAction(async (elderId)=>{
       const e = elders.get(elderId); if (!e) return;
-      const monday = getScheduleMonday();
+      const monday = new Date((selectedWeekMonday || getScheduleMonday()).getTime());
       await addDoc(userCol('schedule'), {
         weekOf: monday,
         elderId,
@@ -986,7 +1090,8 @@
         createdAt: new Date(),
         status: 'Confirmed'
       });
-      alert('Confirmed for Wednesday.');
+      const wed = wednesdayOfWeek(monday);
+      alert(`Confirmed for Wed ${shortDate(wed)}.`);
     }, 'Unable to confirm that visit. Please try again.');
     window.unschedule = runAction(async (scheduleId)=>{
       if (!confirm('Remove from this week’s plan?')) return;
@@ -1056,9 +1161,14 @@
       arr.sort((a,b)=> b._score - a._score);
       if (!arr.length) return alert('No eligible elders.');
       const chosen = arr[0];
-      const monday = getScheduleMonday();
+      const currentWeek = getScheduleMonday();
+      const monday = new Date((selectedWeekMonday || currentWeek).getTime());
+      if (monday.getTime() < currentWeek.getTime()){
+        alert('Cannot pick elders for past weeks.');
+        return;
+      }
       await addDoc(userCol('schedule'), { weekOf:monday, elderId:chosen.id, elderName:(chosen.preferredName||'')+' '+(chosen.lastName||''), createdAt:new Date(), status:'Planned' });
-      alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||'' ));
+      alert(`Picked for week of ${shortDate(monday)}: ${(chosen.preferredName||'')} ${(chosen.lastName||'')}`.trim());
     }, 'Unable to pick an elder this week. Please try again.');
 
     /* ---------- Start ---------- */
