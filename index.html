@@ -73,6 +73,9 @@
       #view-elders tbody td.actions .btn { flex:1 1 calc(50% - .3rem); min-width:7rem; }
       #view-elders tbody td.actions .btn.danger { flex-basis:100%; }
       #currentUser { max-width:60vw; }
+      .schedule-header { flex-direction:column; align-items:stretch; }
+      .schedule-header-actions { width:100%; justify-content:space-between; }
+      .schedule-row-actions { justify-content:flex-start; width:100%; }
     }
 
     /* “two-up” area on Next Up */
@@ -81,6 +84,17 @@
     .list { display:flex; flex-direction:column; gap:.5rem; }
     .row { display:flex; gap:.5rem; align-items:center; justify-content:space-between; }
     .row .who { font-weight:600; }
+    .schedule-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.5rem; }
+    .schedule-header .btn { white-space:nowrap; }
+    .week-label { display:flex; flex-direction:column; gap:.1rem; min-width:0; }
+    .week-label div:first-child { font-weight:600; }
+    .schedule-header-actions { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+    .schedule-row-actions { display:flex; gap:.5rem; flex-wrap:wrap; justify-content:flex-end; }
+    .status-pill { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .6rem; border-radius:999px; font-size:.75rem; font-weight:600; border:1px solid transparent; }
+    .status-pill.planned { background:#fff7ed; color:#9a3412; border-color:#fed7aa; }
+    .status-pill.confirmed { background:#ecfdf5; color:#047857; border-color:#6ee7b7; }
+    .status-pill.visited { background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; }
+    .status-pill.neutral { background:#f3f4f6; color:#374151; border-color:#d1d5db; }
     .toast-host { position:fixed; top:1rem; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:.5rem;
       z-index:50; width:min(90vw,360px); pointer-events:none; }
     .toast { background:#fff; color:#111827; border-radius:12px; box-shadow:0 16px 32px rgba(15,23,42,.12);
@@ -143,7 +157,18 @@
           <div id="recentTexts" class="list"></div>
         </div>
         <div class="card" style="padding:.75rem">
-          <div class="section-title">This week’s visits (Wed)</div>
+          <div class="section-title">Scheduled visits</div>
+          <div class="schedule-header">
+            <button class="btn outline" id="weekPrevBtn">◀ Prev</button>
+            <div class="week-label">
+              <div id="scheduleWeekLabel"></div>
+              <div id="scheduleWeekContext" class="subtle"></div>
+            </div>
+            <div class="schedule-header-actions">
+              <button class="btn outline" id="weekTodayBtn">This week</button>
+              <button class="btn outline" id="weekNextBtn">Next ▶</button>
+            </div>
+          </div>
           <div id="thisWeek" class="list"></div>
         </div>
       </div>
@@ -151,7 +176,7 @@
       <div class="toolbar">
         <input id="searchNext" class="input" placeholder="Search name/phone/email/address">
         <button class="btn outline" id="btnSearchNext">Search</button>
-        <button class="btn outline" onclick="pickThisWeek()">Pick next elder (for this week)</button>
+        <button class="btn outline" id="pickWeekBtn" onclick="pickThisWeek()">Pick next elder (for this week)</button>
         <div class="grow"></div>
         <span id="yearRemaining" class="muted"></span>
       </div>
@@ -446,6 +471,84 @@
       return w;
     }
 
+    const WEEK_MS = 7*86400000;
+    const WEEK_STORAGE_KEY = 'eq:selectedWeek';
+    const safeStorage = {
+      get(key){
+        try { return window.localStorage ? localStorage.getItem(key) : null; }
+        catch { return null; }
+      },
+      set(key, value){
+        try { if (window.localStorage) localStorage.setItem(key, value); }
+        catch { /* ignore */ }
+      }
+    };
+    const canonicalWeek = (value)=>{
+      const base = value?.toDate ? value.toDate() : new Date(value);
+      return getMonday(base);
+    };
+    const loadStoredWeek = ()=>{
+      const raw = safeStorage.get(WEEK_STORAGE_KEY);
+      if (raw){
+        const ms = Number(raw);
+        if (!Number.isNaN(ms)) return canonicalWeek(new Date(ms));
+      }
+      return canonicalWeek(getScheduleMonday());
+    };
+    let selectedWeek = loadStoredWeek();
+    function setSelectedWeek(date){
+      selectedWeek = canonicalWeek(date);
+      safeStorage.set(WEEK_STORAGE_KEY, String(selectedWeek.getTime()));
+      renderNext();
+    }
+    function shiftSelectedWeek(delta){
+      const next = new Date(selectedWeek);
+      next.setDate(next.getDate() + delta*7);
+      setSelectedWeek(next);
+    }
+    const describeWeek = (weekDate)=>{
+      const start = canonicalWeek(weekDate);
+      const end = new Date(start);
+      end.setDate(end.getDate()+6);
+      const base = canonicalWeek(getScheduleMonday());
+      const diff = Math.round((start.getTime() - base.getTime()) / WEEK_MS);
+      const startStr = start.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+      const endStr = end.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+      const yearStr = end.getFullYear();
+      let context = '';
+      let relation = 'current';
+      let forLabel = '';
+      if (diff === 0){ context='This week'; relation='current'; forLabel='this week'; }
+      else if (diff === 1){ context='Next week'; relation='future'; forLabel='next week'; }
+      else if (diff === -1){ context='Last week'; relation='past'; forLabel='last week'; }
+      else if (diff > 1){ context=`In ${diff} weeks`; relation='future'; forLabel=`week of ${startStr}`; }
+      else { context=`${Math.abs(diff)} weeks ago`; relation='past'; forLabel=`week of ${startStr}`; }
+      return {
+        start,
+        end,
+        range: `${startStr} – ${endStr}, ${yearStr}`,
+        context,
+        relation,
+        forLabel
+      };
+    };
+    function weekWednesdayLabel(weekDate){
+      const wed = wednesdayOfWeek(weekDate);
+      return wed.toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' });
+    }
+    const scheduleStatusInfo = (statusRaw)=>{
+      const value = (statusRaw ?? 'Planned').toString().trim();
+      const key = value.toLowerCase();
+      if (key === 'confirmed') return { className:'status-pill confirmed', label:'Confirmed', key };
+      if (key === 'visited') return { className:'status-pill visited', label:'Visited', key };
+      if (key === 'planned' || key === '') return { className:'status-pill planned', label:'Planned', key:'planned' };
+      return { className:'status-pill neutral', label: value || 'Planned', key };
+    };
+    const scheduleStatusWeight = (statusRaw)=>{
+      const key = (statusRaw ?? '').toString().trim().toLowerCase();
+      return ({ visited:3, confirmed:2, planned:1 }[key] || 0);
+    };
+
     function updateAuthUI(user){
       const signedOut = !user;
       ['email','password','signinBtn','createBtn'].forEach(id => q(id).style.display = signedOut ? 'inline-block' : 'none');
@@ -547,6 +650,11 @@
         renderElders();
       });
     };
+    function wireWeekNav(){
+      q('weekPrevBtn')?.addEventListener('click', ()=> shiftSelectedWeek(-1));
+      q('weekNextBtn')?.addEventListener('click', ()=> shiftSelectedWeek(1));
+      q('weekTodayBtn')?.addEventListener('click', ()=> setSelectedWeek(getScheduleMonday()));
+    }
 
     /* ---------- Queue settings (rolling 12m + texting cooldown) ---------- */
     const SETTINGS = {
@@ -599,11 +707,11 @@
     };
     function renderAll(){ renderNext(); renderElders(); fillLogSelect(); updateSortArrows(); updateCounters(); }
 
-    // --- Next Up (cards) + “recent texts” + “this week” ---
+    // --- Next Up (cards) + “recent texts” + schedule ---
     function renderNext(){
       // panels at top
       renderRecentTexts();
-      renderThisWeek();
+      renderSchedule();
 
       // Top candidates
       const grid = q('nextGrid');
@@ -655,18 +763,20 @@
         .slice(0,12);
       if (!items.length){ container.innerHTML = '<div class="subtle">None yet.</div>'; return; }
 
-      const thisMon = getScheduleMonday();
+      const weekMs = selectedWeek.getTime();
       const already = new Set(
         schedules
-          .filter(s => asMs(s.weekOf) === thisMon.getTime())
+          .filter(s => asMs(s.weekOf) === weekMs)
           .map(s => s.elderId)
       );
+      const confirmLabel = weekWednesdayLabel(selectedWeek);
 
       container.innerHTML = items.map(({e,lastTx})=>{
         const displayName = [e.preferredName, e.lastName].filter(Boolean).join(' ').trim();
         const nameHtml = escapeHtml(displayName);
         const textDateHtml = escapeHtml(new Date(lastTx).toLocaleDateString());
         const canConfirm = !already.has(e.id);
+        const buttonLabel = canConfirm ? `Confirm for ${confirmLabel}` : 'Scheduled';
         return `
           <div class="row">
             <div>
@@ -675,38 +785,69 @@
             </div>
             <div>
               <button class="btn ${canConfirm?'':'outline'}" ${canConfirm?`onclick="confirmVisitThisWed('${e.id}')"`:'disabled'}>
-                ${canConfirm?'Confirm for Wed':'Scheduled'}
+                ${escapeHtml(buttonLabel)}
               </button>
             </div>
           </div>`;
       }).join('');
     }
 
-    function renderThisWeek(){
+    function renderSchedule(){
       const container = q('thisWeek'); if (!container) return;
-      const thisMon = getScheduleMonday();
+      const meta = describeWeek(selectedWeek);
+      const weekLabelEl = q('scheduleWeekLabel'); if (weekLabelEl) weekLabelEl.textContent = meta.range;
+      const weekContextEl = q('scheduleWeekContext'); if (weekContextEl) weekContextEl.textContent = meta.context;
+      const todayBtn = q('weekTodayBtn'); if (todayBtn) todayBtn.disabled = (meta.relation === 'current');
+      const pickBtn = q('pickWeekBtn'); if (pickBtn) pickBtn.textContent = `Pick next elder (for ${meta.forLabel})`;
+
+      const messageLabel = meta.forLabel || 'this week';
+      const weekMs = selectedWeek.getTime();
       const list = schedules
-        .filter(s => asMs(s.weekOf) === thisMon.getTime())
-        .sort((a,b)=> (a.status||'').localeCompare(b.status||''));
+        .filter(s => asMs(s.weekOf) === weekMs)
+        .sort((a,b)=>{
+          const sa = (a.status||'').toString().toLowerCase();
+          const sb = (b.status||'').toString().toLowerCase();
+          if (sa !== sb) return sa.localeCompare(sb);
+          const na = (a.elderName||'').toString();
+          const nb = (b.elderName||'').toString();
+          return na.localeCompare(nb, undefined, { sensitivity:'base' });
+        });
 
-      if (!list.length){ container.innerHTML = '<div class="subtle">No one scheduled yet.</div>'; return; }
+      if (!list.length){
+        container.innerHTML = `<div class="subtle">No visits scheduled for ${escapeHtml(messageLabel)}.</div>`;
+        return;
+      }
 
+      const wedLabel = weekWednesdayLabel(selectedWeek);
       container.innerHTML = list.map(s=>{
         const e = elders.get(s.elderId);
         const rawName = e ? [e.preferredName, e.lastName].filter(Boolean).join(' ').trim() : (s.elderName||'—');
         const nameHtml = escapeHtml(rawName);
-        const statusHtml = escapeHtml(s.status||'Planned');
+        const info = scheduleStatusInfo(s.status);
+        const statusBadge = `<span class="${info.className}">${escapeHtml(info.label)}</span>`;
+        const detailHtml = `<div class="subtle" style="display:flex; gap:.35rem; flex-wrap:wrap; align-items:center;">${statusBadge}<span>${escapeHtml(wedLabel)}</span></div>`;
+        const actions = [];
+        if (meta.relation !== 'past' && info.key !== 'confirmed' && info.key !== 'visited'){
+          const confirmLabel = meta.relation === 'future' ? 'Mark confirmed' : 'Confirm';
+          actions.push(`<button class="btn" onclick="setScheduleStatus('${s.id}','Confirmed')">${confirmLabel}</button>`);
+        }
+        if (meta.relation !== 'future' && info.key !== 'visited'){
+          actions.push(`<button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>`);
+        }
+        if (meta.relation === 'future'){
+          actions.push(`<button class="btn outline" onclick="shiftScheduleWeek('${s.id}', -1)">Earlier week</button>`);
+        } else {
+          const moveLabel = meta.relation === 'past' ? 'Reschedule forward' : 'Next week';
+          actions.push(`<button class="btn outline" onclick="shiftScheduleWeek('${s.id}', 1)">${moveLabel}</button>`);
+        }
+        actions.push(`<button class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>`);
         return `
           <div class="row">
             <div>
               <div class="who">${nameHtml}</div>
-              <div class="subtle">${statusHtml}</div>
+              ${detailHtml}
             </div>
-            <div style="display:flex; gap:.5rem">
-              <button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>
-              <button class="btn outline" onclick="scheduleNextWeek('${s.id}')">Next Wed</button>
-              <button class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>
-            </div>
+            <div class="schedule-row-actions">${actions.join('')}</div>
           </div>`;
       }).join('');
     }
@@ -1145,66 +1286,104 @@
     }, 'Unable to fix duplicates right now. Please try again.');
 
     /* ---------- Scheduling helpers ---------- */
+    function shiftWeekDate(weekOf, deltaWeeks){
+      const base = canonicalWeek(weekOf);
+      const next = new Date(base);
+      next.setDate(next.getDate() + Number(deltaWeeks||0)*7);
+      return next;
+    }
+    async function moveScheduleByWeeks(scheduleId, deltaWeeks){
+      const s = schedules.find(x=>x.id===scheduleId);
+      if (!s) return null;
+      const e = elders.get(s.elderId);
+      const targetMonday = shiftWeekDate(s.weekOf, deltaWeeks);
+      const targetMs = targetMonday.getTime();
+      const existing = schedules.find(x=> x.elderId===s.elderId && asMs(x.weekOf) === targetMs);
+      const nameValue = (e ? ((e.preferredName||'')+' '+(e.lastName||'')) : (s.elderName||'')).trim();
+
+      if (existing){
+        const updates = { weekOf: targetMonday };
+        const existingName = (existing.elderName||'').trim();
+        if (nameValue && existingName !== nameValue) updates.elderName = nameValue;
+        if (scheduleStatusWeight(existing.status) < scheduleStatusWeight('Planned')) updates.status = 'Planned';
+        await updateDoc(doc(db,'users',currentUser.uid,'schedule',existing.id), updates);
+      } else {
+        const payload = { weekOf: targetMonday, elderId: s.elderId, status:'Planned', createdAt: new Date() };
+        if (nameValue) payload.elderName = nameValue;
+        await addDoc(userCol('schedule'), payload);
+      }
+
+      await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
+      return targetMonday;
+    }
+    window.setScheduleStatus = runAction(async (scheduleId, status)=>{
+      const ref = doc(db,'users',currentUser.uid,'schedule',scheduleId);
+      const normalized = (status ?? '').toString() || 'Planned';
+      await updateDoc(ref, { status: normalized });
+      const info = scheduleStatusInfo(normalized);
+      const sched = schedules.find(x=>x.id===scheduleId);
+      const label = sched ? weekWednesdayLabel(sched.weekOf) : 'that week';
+      showSuccessToast(`${info.label} for ${label}.`);
+    }, 'Unable to update that schedule right now. Please try again.');
     window.confirmVisitThisWed = runAction(async (elderId)=>{
       const e = elders.get(elderId); if (!e) return;
-      const monday = getScheduleMonday();
-      await addDoc(userCol('schedule'), {
-        weekOf: monday,
-        elderId,
-        elderName: (e.preferredName||'')+' '+(e.lastName||''),
-        createdAt: new Date(),
-        status: 'Confirmed'
-      });
-      showSuccessToast('Confirmed for Wednesday.');
+      const monday = canonicalWeek(selectedWeek);
+      const weekMs = monday.getTime();
+      const existing = schedules.find(s => s.elderId === elderId && asMs(s.weekOf) === weekMs);
+      const elderName = ((e.preferredName||'')+' '+(e.lastName||'')).trim();
+      const wedLabel = weekWednesdayLabel(monday);
+      if (existing){
+        const currentStatus = (existing.status||'').toString().toLowerCase();
+        if (currentStatus === 'visited'){
+          showToast(`Already marked visited for ${wedLabel}.`, { variant:'info' });
+          return;
+        }
+        const updates = {};
+        if (elderName && (existing.elderName||'').trim() !== elderName) updates.elderName = elderName;
+        if (currentStatus !== 'confirmed') updates.status = 'Confirmed';
+        if (Object.keys(updates).length){
+          await updateDoc(doc(db,'users',currentUser.uid,'schedule',existing.id), updates);
+        }
+      } else {
+        await addDoc(userCol('schedule'), {
+          weekOf: monday,
+          elderId,
+          elderName,
+          createdAt: new Date(),
+          status: 'Confirmed'
+        });
+      }
+      showSuccessToast(`Confirmed for ${wedLabel}.`);
     }, 'Unable to confirm that visit. Please try again.');
     window.unschedule = runAction(async (scheduleId)=>{
-      const confirmed = await showConfirm('Remove from this week’s plan?', {
+      const s = schedules.find(x=>x.id===scheduleId);
+      const e = s ? elders.get(s.elderId) : null;
+      const name = (e ? ((e.preferredName||'')+' '+(e.lastName||'')) : (s?.elderName||''))?.trim() || 'this elder';
+      const label = s ? weekWednesdayLabel(s.weekOf) : 'this plan';
+      const confirmed = await showConfirm(`Remove ${name} from the plan for ${label}?`, {
         confirmText: 'Remove',
         cancelText: 'Keep'
       });
       if (!confirmed) return;
       await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
     }, 'Unable to unschedule that visit. Please try again.');
-    const nextWeekMonday = (weekOf)=>{
-      const monday = weekOf?.toDate ? weekOf.toDate() : new Date(weekOf);
-      const next = new Date(monday);
-      next.setDate(next.getDate() + 7);
-      next.setHours(0,0,0,0);
-      return next;
-    };
-    window.scheduleNextWeek = runAction(async (scheduleId)=>{
+    window.shiftScheduleWeek = runAction(async (scheduleId, delta)=>{
       const s = schedules.find(x=>x.id===scheduleId);
       if (!s) return;
       const e = elders.get(s.elderId);
-      if (!e) return;
-      const confirmedMove = await showConfirm(`Move ${e.preferredName||e.lastName||'this elder'} to next Wednesday?`, {
+      const displayName = (e ? (e.preferredName||e.lastName) : null) || (s.elderName||'this elder');
+      const deltaNumber = Number(delta) || 0;
+      const direction = deltaNumber < 0 ? 'the previous' : 'next';
+      const targetMondayPreview = shiftWeekDate(s.weekOf, deltaNumber);
+      const targetLabel = weekWednesdayLabel(targetMondayPreview);
+      const confirmedMove = await showConfirm(`Move ${displayName} to the ${direction} week (${targetLabel})?`, {
         confirmText: 'Move',
         cancelText: 'Cancel'
       });
       if (!confirmedMove) return;
-
-      const upcomingMonday = nextWeekMonday(s.weekOf);
-      const existing = schedules.find(x=> x.elderId===s.elderId && asMs(x.weekOf) === upcomingMonday.getTime());
-      const plannedStatusWeight = status => ({ Visited:3, Confirmed:2, Planned:1 }[status] || 0);
-      const nameValue = (e.preferredName||'')+' '+(e.lastName||'');
-      const basePayload = {
-        weekOf: upcomingMonday,
-        elderId: s.elderId,
-        elderName: nameValue
-      };
-
-      if (existing){
-        const updates = { weekOf: upcomingMonday };
-        const trimmedExisting = (existing.elderName||'').trim();
-        if (nameValue.trim() && trimmedExisting !== nameValue.trim()) updates.elderName = nameValue;
-        if (plannedStatusWeight(existing.status) < plannedStatusWeight('Planned')) updates.status = 'Planned';
-        await updateDoc(doc(db,'users',currentUser.uid,'schedule',existing.id), updates);
-      } else {
-        await addDoc(userCol('schedule'), { ...basePayload, status:'Planned', createdAt: new Date() });
-      }
-
-      await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
-      showSuccessToast('Moved to next Wednesday.');
+      const target = await moveScheduleByWeeks(scheduleId, deltaNumber);
+      if (!target) return;
+      showSuccessToast(`Moved to ${weekWednesdayLabel(target)}.`);
     }, 'Unable to move that visit. Please try again.');
     window.markVisitedFromSchedule = runAction(async (scheduleId)=>{
       const s = schedules.find(x=>x.id===scheduleId); if (!s) return;
@@ -1233,21 +1412,31 @@
     }, 'Unable to mark that visit right now. Please try again.');
 
     window.pickThisWeek = runAction(async ()=>{
-      const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText && cleanPhone(e.phone||'').length);
+      const weekMs = selectedWeek.getTime();
+      const already = new Set(
+        schedules
+          .filter(s => asMs(s.weekOf) === weekMs)
+          .map(s => s.elderId)
+      );
+      const arr = Array.from(elders.values())
+        .filter(e => e.active!==false && !e.doNotText && cleanPhone(e.phone||'').length)
+        .filter(e => !already.has(e.id));
       arr.forEach(e => e._score = nextUpScore(e));
       arr.sort((a,b)=> b._score - a._score);
       if (!arr.length) {
-        showToast('No eligible elders.', { variant: 'info' });
+        showToast('No eligible elders for this week.', { variant: 'info' });
         return;
       }
       const chosen = arr[0];
-      const monday = getScheduleMonday();
-      await addDoc(userCol('schedule'), { weekOf:monday, elderId:chosen.id, elderName:(chosen.preferredName||'')+' '+(chosen.lastName||''), createdAt:new Date(), status:'Planned' });
-      showSuccessToast('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||''));
+      const monday = canonicalWeek(selectedWeek);
+      const elderName = ((chosen.preferredName||'')+' '+(chosen.lastName||'')).trim();
+      await addDoc(userCol('schedule'), { weekOf:monday, elderId:chosen.id, elderName, createdAt:new Date(), status:'Planned' });
+      showSuccessToast(`Picked ${elderName || 'an elder'} for ${weekWednesdayLabel(selectedWeek)}.`);
     }, 'Unable to pick an elder this week. Please try again.');
 
     /* ---------- Start ---------- */
     window.showView('next');
+    wireWeekNav();
     wireSearch();
   </script>
 
