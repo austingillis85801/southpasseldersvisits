@@ -46,6 +46,20 @@
     #authBox { display:flex; gap:.5rem; align-items:center; margin-left:auto; flex-wrap:wrap; }
     #currentUser { max-width:45vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#374151; }
 
+    .modal-overlay { position:fixed; inset:0; background:rgba(15,23,42,.35); display:none; align-items:center; justify-content:center; padding:1rem; z-index:100; }
+    .modal-overlay.show { display:flex; }
+    body.modal-open { overflow:hidden; }
+    .modal { background:#fff; border-radius:16px; max-width:520px; width:100%; padding:1.25rem; box-shadow:0 22px 45px rgba(15,23,42,.22); display:flex; flex-direction:column; gap:.75rem; }
+    .modal h2 { margin:0; font-size:1.1rem; color:#111827; }
+    .modal .form-grid { display:grid; gap:.65rem; }
+    .modal label { font-size:.85rem; color:#374151; display:flex; flex-direction:column; gap:.35rem; }
+    .modal label.inline { flex-direction:row; align-items:center; gap:.5rem; font-weight:500; }
+    .modal .error { color:var(--bad); font-size:.85rem; min-height:1em; }
+    .modal .actions { display:flex; gap:.5rem; flex-wrap:wrap; justify-content:flex-end; }
+    .modal .extra-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+    .modal textarea { resize:vertical; min-height:72px; }
+
+
     /* Mobile cards for directory */
     @media (max-width:640px){
       header { gap:.5rem; padding:.5rem .75rem; }
@@ -201,6 +215,50 @@
     </section>
   </main>
 
+  <div id="elderModal" class="modal-overlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="elderModalTitle">
+      <h2 id="elderModalTitle">Elder</h2>
+      <form id="elderModalForm" class="form-grid">
+        <label>
+          Preferred name
+          <input name="preferredName" class="input" autocomplete="given-name" required>
+        </label>
+        <label>
+          Last name
+          <input name="lastName" class="input" autocomplete="family-name" required>
+        </label>
+        <label>
+          Phone
+          <input name="phone" class="input" inputmode="tel" autocomplete="tel">
+        </label>
+        <label>
+          Email
+          <input name="email" class="input" type="email" autocomplete="email">
+        </label>
+        <label>
+          Address
+          <textarea name="address" class="input" autocomplete="street-address"></textarea>
+        </label>
+        <div style="display:flex; gap:1rem; flex-wrap:wrap">
+          <label class="inline">
+            <input type="checkbox" name="doNotText">
+            <span>Do Not Text</span>
+          </label>
+          <label class="inline">
+            <input type="checkbox" name="active">
+            <span>Active</span>
+          </label>
+        </div>
+        <div id="elderModalError" class="error" role="alert"></div>
+        <div id="elderModalExtra" class="extra-actions"></div>
+        <div class="actions">
+          <button type="button" class="btn outline" data-role="cancel">Cancel</button>
+          <button type="submit" class="btn" data-role="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script type="module">
@@ -281,6 +339,142 @@
     const nowMs = ()=> Date.now();
     const daysBetween = (ms)=> Math.floor((nowMs()-ms)/86400000);
     const monthsAgo = (n)=>{ const d=new Date(); d.setMonth(d.getMonth()-n); d.setHours(0,0,0,0); return d; };
+
+    const elderFormModal = (()=>{
+      const overlay = document.getElementById('elderModal');
+      const form = document.getElementById('elderModalForm');
+      const titleEl = document.getElementById('elderModalTitle');
+      const errorEl = document.getElementById('elderModalError');
+      const extraEl = document.getElementById('elderModalExtra');
+      const submitBtn = form.querySelector('[data-role="submit"]');
+      const cancelBtn = form.querySelector('[data-role="cancel"]');
+      let resolver = null;
+      let currentConfig = null;
+
+      const setButtonsDisabled = (disabled)=>{
+        submitBtn.disabled = disabled;
+        cancelBtn.disabled = disabled;
+        extraEl.querySelectorAll('button').forEach(btn=>{ btn.disabled = disabled; });
+      };
+
+      const close = (result=false)=>{
+        overlay.classList.remove('show');
+        overlay.setAttribute('aria-hidden','true');
+        document.body.classList.remove('modal-open');
+        const res = resolver;
+        resolver = null;
+        currentConfig = null;
+        if (res) res(result);
+      };
+
+      cancelBtn.addEventListener('click', (e)=>{ e.preventDefault(); close(false); });
+      overlay.addEventListener('click', (e)=>{ if (e.target === overlay) close(false); });
+      document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && overlay.classList.contains('show')) close(false); });
+
+      form.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        if (!currentConfig) return;
+        errorEl.textContent = '';
+        setButtonsDisabled(true);
+        const values = {
+          preferredName: form.elements.preferredName.value.trim(),
+          lastName: form.elements.lastName.value.trim(),
+          phone: form.elements.phone.value.trim(),
+          email: form.elements.email.value.trim(),
+          address: form.elements.address.value.trim(),
+          doNotText: form.elements.doNotText.checked,
+          active: form.elements.active.checked
+        };
+
+        const errors = [];
+        if (!values.preferredName) errors.push('Preferred name is required.');
+        if (!values.lastName) errors.push('Last name is required.');
+
+        const digits = cleanPhone(values.phone);
+        let formattedPhone = '';
+        if (digits){
+          if (digits.length === 10){
+            formattedPhone = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+          } else if (digits.length === 11 && digits.startsWith('1')){
+            formattedPhone = `+1 (${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`;
+          } else {
+            errors.push('Phone number must include 10 digits (country code optional).');
+          }
+        }
+
+        if (errors.length){
+          errorEl.innerHTML = errors.map(msg=>`<div>${escapeHtml(msg)}</div>`).join('');
+          setButtonsDisabled(false);
+          return;
+        }
+
+        values.phone = formattedPhone;
+
+        try {
+          await currentConfig.onSubmit(values);
+          close(true);
+        } catch (err) {
+          console.error('Modal submit failed:', err);
+          errorEl.textContent = err?.message || defaultErrorMessage;
+        } finally {
+          if (overlay.classList.contains('show')) setButtonsDisabled(false);
+        }
+      });
+
+      const open = (config={})=> new Promise((resolve)=>{
+        currentConfig = config;
+        resolver = resolve;
+        titleEl.textContent = config.title || 'Elder';
+        submitBtn.textContent = config.submitLabel || 'Save';
+        form.reset();
+        errorEl.textContent = '';
+        extraEl.innerHTML = '';
+
+        const elder = config.elder || {};
+        form.elements.preferredName.value = elder.preferredName || '';
+        form.elements.lastName.value = elder.lastName || '';
+        form.elements.phone.value = elder.phone || '';
+        form.elements.email.value = elder.email || '';
+        form.elements.address.value = elder.address || '';
+        form.elements.doNotText.checked = elder.doNotText === true;
+        form.elements.active.checked = elder.active !== false;
+
+        if (Array.isArray(config.extraActions) && config.extraActions.length){
+          config.extraActions.forEach(action=>{
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = action.variant ? `btn ${action.variant}` : 'btn outline';
+            btn.textContent = action.label;
+            btn.addEventListener('click', async ()=>{
+              if (action.confirm && !confirm(action.confirm)) return;
+              errorEl.textContent = '';
+              setButtonsDisabled(true);
+              try {
+                await action.handler?.();
+                if (action.closeOnSuccess !== false) close(true);
+              } catch (err) {
+                console.error('Modal extra action failed:', err);
+                errorEl.textContent = err?.message || defaultErrorMessage;
+              } finally {
+                if (overlay.classList.contains('show')) setButtonsDisabled(false);
+              }
+            });
+            extraEl.appendChild(btn);
+          });
+          extraEl.style.display = '';
+        } else {
+          extraEl.style.display = 'none';
+        }
+
+        document.body.classList.add('modal-open');
+        overlay.classList.add('show');
+        overlay.setAttribute('aria-hidden','false');
+        setButtonsDisabled(false);
+        setTimeout(()=>{ form.elements[config.focusField || 'preferredName']?.focus(); }, 0);
+      });
+
+      return { open, close };
+    })();
 
     function getMonday(d=new Date()){
       const x = new Date(d); const day = x.getDay(); // 0=Sun
@@ -706,26 +900,38 @@
     }, 'Unable to record the no-answer attempt. Please try again.');
 
     window.addElderPrompt = runAction(async ()=>{
-      const name = prompt('Preferred name and last name (e.g., John Doe)?');
-      if (!name) return;
-      const phone = prompt('Phone (optional)') || '';
-      const [preferredName, ...rest] = name.split(' ');
-      const lastName = rest.join(' ');
-      await addDoc(userCol('elders'), {
-        preferredName, lastName, phone, active: true, firstSeen: new Date(),
-        attemptsSinceLastVisit: 0, doNotText: false
+      await elderFormModal.open({
+        title: 'Add elder',
+        submitLabel: 'Add elder',
+        onSubmit: async (values)=>{
+          await addDoc(userCol('elders'), {
+            preferredName: values.preferredName,
+            lastName: values.lastName,
+            phone: values.phone,
+            email: values.email,
+            address: values.address,
+            active: values.active,
+            doNotText: values.doNotText,
+            firstSeen: new Date(),
+            attemptsSinceLastVisit: 0,
+            lastVisited: null,
+            lastContacted: null
+          });
+        }
       });
     }, 'Unable to add that elder. Please try again.');
 
     window.editElder = runAction(async (id)=>{
-      const e = elders.get(id); if (!e) return;
-      const name = prompt('Edit name', `${e.preferredName||''} ${e.lastName||''}`) || '';
-      const phone = prompt('Edit phone', e.phone||'') || '';
-      const doNotText = confirm('Mark as Do Not Text? Click OK for Yes, Cancel for No');
-      const [preferredName, ...rest] = name.split(' ');
-      const lastName = rest.join(' ');
+      const elder = elders.get(id); if (!elder) return;
       const ref = doc(db, 'users', currentUser.uid, 'elders', id);
-      await updateDoc(ref, { preferredName, lastName, phone, doNotText });
+      await elderFormModal.open({
+        title: 'Edit elder',
+        submitLabel: 'Save changes',
+        elder,
+        onSubmit: async (values)=>{
+          await updateDoc(ref, values);
+        }
+      });
     }, 'Unable to update that elder. Please try again.');
 
     window.toggleArchive = runAction(async (id, isInactive)=>{
@@ -740,37 +946,49 @@
 
     // Adjust menu: reset visit or remove last ask (with double-check)
     window.adjustMenu = runAction(async (id)=>{
-      const e = elders.get(id); if (!e) return;
-      const choice = prompt(
-        'Type 1 or 2 (or Cancel):\n' +
-        '1) Reset last visit (treat as not visited)\n' +
-        '2) Remove last ask (decrement attempts & remove latest text log)\n' +
-        'Cancel) anything else'
-      );
-      if (choice === '1'){
-        if (!confirm('Are you sure you want to reset LAST VISIT for this elder?')) return;
-        const ref = doc(db, 'users', currentUser.uid, 'elders', id);
-        await updateDoc(ref, {
-          lastVisited: null,
-          lastContacted: serverTimestamp(),
-          attemptsSinceLastVisit: increment(1) // bump—still need to ask again
-        });
-        alert('Last visit reset.');
-      } else if (choice === '2'){
-        if (!confirm('Are you sure you want to remove the MOST RECENT ASK?')) return;
-        const hist = Array.isArray(e.textHistory) ? [...e.textHistory] : [];
-        if (hist.length) hist.pop();
-        const newAttempts = Math.max(0, (e.attemptsSinceLastVisit||0)-1);
-        const ref = doc(db, 'users', currentUser.uid, 'elders', id);
-        await updateDoc(ref, {
-          textHistory: hist,
-          attemptsSinceLastVisit: newAttempts,
-          lastTexted: null // UI will compute from history anyway
-        });
-        alert('Most recent ask removed.');
-      } else {
-        // no-op
-      }
+      const elder = elders.get(id); if (!elder) return;
+      const ref = doc(db, 'users', currentUser.uid, 'elders', id);
+      const currentElder = ()=> elders.get(id);
+      await elderFormModal.open({
+        title: 'Adjust elder',
+        submitLabel: 'Save changes',
+        elder,
+        onSubmit: async (values)=>{
+          await updateDoc(ref, values);
+        },
+        extraActions: [
+          {
+            label: 'Reset last visit',
+            variant: 'danger',
+            confirm: 'Are you sure you want to reset LAST VISIT for this elder?',
+            handler: async ()=>{
+              await updateDoc(ref, {
+                lastVisited: null,
+                lastContacted: serverTimestamp(),
+                attemptsSinceLastVisit: increment(1)
+              });
+              alert('Last visit reset.');
+            }
+          },
+          {
+            label: 'Remove last ask',
+            variant: 'outline',
+            confirm: 'Are you sure you want to remove the MOST RECENT ASK?',
+            handler: async ()=>{
+              const latest = currentElder();
+              const hist = Array.isArray(latest?.textHistory) ? [...latest.textHistory] : [];
+              if (hist.length) hist.pop();
+              const newAttempts = Math.max(0, ((latest?.attemptsSinceLastVisit)||0)-1);
+              await updateDoc(ref, {
+                textHistory: hist,
+                attemptsSinceLastVisit: newAttempts,
+                lastTexted: null
+              });
+              alert('Most recent ask removed.');
+            }
+          }
+        ]
+      });
     }, 'Unable to adjust that record. Please try again.');
 
     /* ---------- Keys (no householdId) ---------- */
