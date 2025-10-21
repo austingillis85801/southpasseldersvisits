@@ -115,6 +115,28 @@
     .confirm-message { font-size:.95rem; color:#1f2937; }
     .confirm-buttons { display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; }
     .confirm-overlay button { min-width:0; }
+
+    .import-status { margin-top:.75rem; padding:.75rem; border-radius:12px; border:1px solid transparent; display:none; font-size:.9rem; }
+    .import-status.info { background:#eef2ff; color:#3730a3; border-color:#c7d2fe; }
+    .import-status.success { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+    .import-status.error { background:#fef2f2; color:#b91c1c; border-color:#fecaca; }
+    .import-status.warning { background:#fffbeb; color:#92400e; border-color:#fcd34d; }
+    .import-preview { display:none; }
+    .import-preview-summary { display:flex; flex-direction:column; gap:.25rem; font-size:.9rem; }
+    .import-preview-details { display:flex; flex-direction:column; gap:.75rem; margin-top:.75rem; }
+    .import-preview-section { border:1px solid var(--line); border-radius:12px; padding:.75rem; background:#f9fafb; }
+    .import-preview-section.error { border-color:var(--bad); background:#fef2f2; }
+    .import-preview-section-title { font-weight:600; margin-bottom:.35rem; }
+    .import-preview-section table { width:100%; border-collapse:collapse; font-size:.85rem; }
+    .import-preview-section th, .import-preview-section td { padding:.35rem .5rem; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    .import-preview-section tbody tr:last-child td { border-bottom:none; }
+    .import-preview-empty { color:var(--muted); font-style:italic; }
+    .import-preview-footer { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:1rem; }
+    .import-preview-footer .btn { flex:0 0 auto; }
+    .import-error-list { margin:0; padding-left:1.25rem; font-size:.9rem; }
+    .import-error-list li { margin:.25rem 0; }
+    .import-error-list strong { color:var(--bad); }
+    .import-preview-scroll { overflow:auto; max-height:240px; }
   </style>
 </head>
 <body>
@@ -244,15 +266,25 @@
       <div class="section-title">Import Elders CSV (see template)</div>
       <input type="file" id="csvFile" accept=".csv">
       <div style="margin-top:.5rem; display:flex; gap:.5rem; flex-wrap:wrap">
-        <button class="btn" onclick="importCsv()">Import &amp; Dedupe</button>
+        <button class="btn" onclick="importCsv()">Preview import</button>
         <button class="btn outline" onclick="exportBackup()">Export backup (JSON)</button>
         <button class="btn outline" onclick="exportCsv()">Export CSV</button>
         <button class="btn danger" onclick="fixDuplicates()">Fix duplicates</button>
         <a class="btn outline" href="elders_template.csv" download>Download template</a>
       </div>
       <p class="muted" style="margin-top:.5rem">
-        Import is idempotent (safe to run multiple times). Missing records become <b>inactive</b>. Visit history is preserved.
+        Preview the changes before applying. Import remains idempotent (safe to run multiple times). Missing records become <b>inactive</b> and visit history is preserved.
       </p>
+      <div id="importStatus" class="import-status" role="status" aria-live="polite" aria-hidden="true"></div>
+      <div id="importPreviewCard" class="card import-preview" style="display:none; margin-top:1rem" aria-hidden="true">
+        <div class="section-title" style="margin-top:0">Import preview</div>
+        <div id="importPreviewSummary" class="import-preview-summary"></div>
+        <div id="importPreviewDetails" class="import-preview-details"></div>
+        <div class="import-preview-footer">
+          <button class="btn" id="applyImportBtn" onclick="applyImportChanges()" disabled>Apply changes</button>
+          <button class="btn outline" id="downloadImportErrorsBtn" onclick="downloadImportErrors()" style="display:none">Download error report</button>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -293,16 +325,29 @@
     const elders = new Map();
     const visits = [];
     const schedules = []; // users/{uid}/schedule
+    let importPreviewData = null;
 
     const q = id => document.getElementById(id);
     const cleanPhone = s => (s||'').replace(/\D/g,'');
     const norm = s => (s||'').toString().trim().toLowerCase();
+    const trimValue = value => (value ?? '').toString().trim();
+    const formatPhoneDisplay = (value) => {
+      const digits = cleanPhone(value || '');
+      if (digits.length === 10) return `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6)}`;
+      return digits || trimValue(value);
+    };
     const defaultErrorMessage = 'Something went wrong. Please try again.';
     const toastHost = document.getElementById('toastHost');
     const confirmOverlay = document.getElementById('confirmOverlay');
     const confirmMessageEl = document.getElementById('confirmMessage');
     const confirmOkBtn = confirmOverlay?.querySelector('[data-confirm]');
     const confirmCancelBtn = confirmOverlay?.querySelector('[data-cancel]');
+    const importStatusEl = q('importStatus');
+    const importPreviewCard = q('importPreviewCard');
+    const importPreviewSummaryEl = q('importPreviewSummary');
+    const importPreviewDetailsEl = q('importPreviewDetails');
+    const applyImportBtn = q('applyImportBtn');
+    const downloadImportErrorsBtn = q('downloadImportErrorsBtn');
     let confirmResolver = null;
     let confirmActive = false;
     let confirmLastFocus = null;
@@ -402,6 +447,32 @@
         }
       }
     });
+    const setImportStatus = (message, variant = 'info') => {
+      if (!importStatusEl) return;
+      const text = message || '';
+      importStatusEl.textContent = text;
+      importStatusEl.className = `import-status ${variant}`;
+      importStatusEl.style.display = text ? 'block' : 'none';
+      importStatusEl.setAttribute('aria-hidden', text ? 'false' : 'true');
+    };
+    const clearImportPreview = () => {
+      importPreviewData = null;
+      if (importPreviewCard) {
+        importPreviewCard.style.display = 'none';
+        importPreviewCard.setAttribute('aria-hidden', 'true');
+      }
+      if (importPreviewSummaryEl) importPreviewSummaryEl.innerHTML = '';
+      if (importPreviewDetailsEl) importPreviewDetailsEl.innerHTML = '';
+      if (applyImportBtn) {
+        applyImportBtn.disabled = true;
+        applyImportBtn.setAttribute('aria-disabled', 'true');
+        applyImportBtn.textContent = 'Apply changes';
+      }
+      if (downloadImportErrorsBtn) {
+        downloadImportErrorsBtn.style.display = 'none';
+        downloadImportErrorsBtn.setAttribute('aria-hidden', 'true');
+      }
+    };
     window.showToast = showToast;
     window.showSuccessToast = showSuccessToast;
     window.showErrorToast = showErrorToast;
@@ -442,6 +513,124 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+
+    const buildImportSection = (title, count, bodyHtml, variant = '') => {
+      const variantClass = variant ? ` ${variant}` : '';
+      return `
+        <div class="import-preview-section${variantClass}">
+          <div class="import-preview-section-title">${escapeHtml(title)} (${count})</div>
+          ${bodyHtml}
+        </div>
+      `;
+    };
+    const renderAddTable = (items = []) => {
+      if (!items.length) return '<div class="import-preview-empty">No new elders.</div>';
+      const rows = items.map(item => {
+        const phoneText = item.phoneDisplay ? escapeHtml(item.phoneDisplay) : '—';
+        const emailText = item.email ? escapeHtml(item.email) : '—';
+        return `
+          <tr>
+            <td>${item.rowNumber}</td>
+            <td>${escapeHtml(item.displayName)}</td>
+            <td>${phoneText || '—'}</td>
+            <td>${emailText || '—'}</td>
+          </tr>
+        `;
+      }).join('');
+      return `<div class="import-preview-scroll"><table><thead><tr><th>Row</th><th>Name</th><th>Phone</th><th>Email</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    };
+    const renderUpdateTable = (items = []) => {
+      if (!items.length) return '<div class="import-preview-empty">No updates.</div>';
+      const rows = items.map(item => {
+        const changeHtml = item.changeDetails.map(change => {
+          const label = escapeHtml(change.label);
+          const value = change.value ? escapeHtml(change.value) : '—';
+          return `<div><span class="muted">${label}:</span> ${value || '—'}</div>`;
+        }).join('');
+        return `
+          <tr>
+            <td>${item.rowNumber ?? '—'}</td>
+            <td>${escapeHtml(item.displayName)}</td>
+            <td>${changeHtml}</td>
+          </tr>
+        `;
+      }).join('');
+      return `<div class="import-preview-scroll"><table><thead><tr><th>Row</th><th>Name</th><th>Changes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    };
+    const renderDeactivateTable = (items = []) => {
+      if (!items.length) return '<div class="import-preview-empty">No deactivations.</div>';
+      const rows = items.map(item => `
+        <tr>
+          <td>${escapeHtml(item.displayName)}</td>
+        </tr>
+      `).join('');
+      return `<div class="import-preview-scroll"><table><thead><tr><th>Name</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    };
+    const renderErrorList = (items = []) => {
+      if (!items.length) return '';
+      const list = items.map(err => {
+        const issues = err.issues.map(escapeHtml).join('; ');
+        return `<li><strong>Row ${err.rowNumber}</strong>: ${issues}</li>`;
+      }).join('');
+      return `<ul class="import-error-list">${list}</ul>`;
+    };
+    const renderImportPreview = (preview) => {
+      if (!importPreviewCard || !importPreviewSummaryEl || !importPreviewDetailsEl) return;
+      importPreviewData = preview;
+      const {
+        adds = [],
+        updates = [],
+        deactivate = [],
+        errors = [],
+        fileName = '',
+        totalRows = 0
+      } = preview || {};
+
+      const summaryParts = [
+        `${adds.length} add${adds.length === 1 ? '' : 's'}`,
+        `${updates.length} update${updates.length === 1 ? '' : 's'}`,
+        `${deactivate.length} deactivation${deactivate.length === 1 ? '' : 's'}`
+      ];
+      if (errors.length) summaryParts.push(`${errors.length} error${errors.length === 1 ? '' : 's'}`);
+      const summaryHtml = summaryParts.join(' • ') || 'No changes detected.';
+      const titleHtml = fileName ? `File: ${escapeHtml(fileName)}` : 'Import preview';
+      importPreviewSummaryEl.innerHTML = `
+        <div><strong>${titleHtml}</strong></div>
+        <div>${summaryHtml}</div>
+        <div class="muted">Rows evaluated: ${totalRows}</div>
+      `;
+
+      const sections = [
+        buildImportSection('New elders', adds.length, renderAddTable(adds)),
+        buildImportSection('Updates', updates.length, renderUpdateTable(updates)),
+        buildImportSection('Deactivations', deactivate.length, renderDeactivateTable(deactivate))
+      ];
+      if (errors.length) sections.push(buildImportSection('Issues to fix', errors.length, renderErrorList(errors), 'error'));
+      importPreviewDetailsEl.innerHTML = sections.join('');
+
+      if (importPreviewCard) {
+        importPreviewCard.style.display = 'block';
+        importPreviewCard.setAttribute('aria-hidden', 'false');
+      }
+
+      if (downloadImportErrorsBtn) {
+        if (errors.length) {
+          downloadImportErrorsBtn.style.display = 'inline-flex';
+          downloadImportErrorsBtn.setAttribute('aria-hidden', 'false');
+        } else {
+          downloadImportErrorsBtn.style.display = 'none';
+          downloadImportErrorsBtn.setAttribute('aria-hidden', 'true');
+        }
+      }
+
+      if (applyImportBtn) {
+        const totalActions = adds.length + updates.length + deactivate.length;
+        const disabled = errors.length > 0 || totalActions === 0;
+        applyImportBtn.disabled = disabled;
+        applyImportBtn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+        applyImportBtn.textContent = 'Apply changes';
+      }
+    };
 
     const nowMs = ()=> Date.now();
     const daysBetween = (ms)=> Math.floor((nowMs()-ms)/86400000);
@@ -1122,54 +1311,266 @@
           complete: (res)=>resolve(res.data), error: reject });
       });
     }
-    window.importCsv = runAction(async ()=>{
-      const file = q('csvFile').files[0];
+    async function importCsv(){
+      clearImportPreview();
+      const input = q('csvFile');
+      const file = input?.files?.[0];
       if (!file) {
-        showErrorToast('Choose a CSV file.');
+        setImportStatus('Choose a CSV file to preview.', 'warning');
         return;
       }
-      const rows = await parseCsv(file);
+      if (!currentUser?.uid) {
+        setImportStatus('Sign in to preview and apply imports.', 'error');
+        return;
+      }
+      setImportStatus('Processing CSV…', 'info');
+      try {
+        const rows = await parseCsv(file);
+        const snap = await getDocs(userCol('elders'));
+        const existingByKey = new Map();
+        snap.forEach(d=>{
+          const data = { id:d.id, ...d.data() };
+          existingByKey.set(keyFromDoc(data), data);
+        });
 
-      const snap = await getDocs(userCol('elders'));
-      const existingByKey = new Map();
-      snap.forEach(d=>{
-        const e = {id:d.id, ...d.data()};
-        existingByKey.set(keyFromDoc(e), e);
-      });
+        const seenKeys = new Set();
+        const keyCounts = new Map();
+        const adds = [];
+        const updates = [];
+        const deactivate = [];
+        const errors = [];
 
-      const seenKeys = new Set();
-      for (const r of rows){
-        const key = keyFromRow(r);
-        seenKeys.add(key);
+        rows.forEach((row, index)=>{
+          const raw = row || {};
+          const rowNumber = index + 2;
+          const preferredName = trimValue(raw.PreferredName ?? raw.FirstName ?? '');
+          const lastName = trimValue(raw.LastName ?? '');
+          const email = trimValue(raw.Email ?? raw.email ?? '');
+          const address = trimValue(raw.Address ?? raw.address ?? '');
+          const rawPhone = trimValue(raw.Phone ?? raw.phone ?? '');
+          const phoneDigits = cleanPhone(rawPhone);
+          const doNotText = ((raw.DoNotText ?? raw.do_not_text ?? '').toString().toLowerCase().startsWith('y'));
+          const key = keyFromRow(raw);
+          const issues = [];
 
-        const phone = cleanPhone(r.Phone||r.phone||'');
-        const payload = {
-          preferredName: r.PreferredName || r.FirstName || '',
-          lastName: r.LastName || '',
-          phone: phone || '',
-          email: r.Email || '',
-          address: r.Address || '',
-          doNotText: ((r.DoNotText||'').toString().toLowerCase().startsWith('y')),
-          active: true
+          const priorCount = keyCounts.get(key) || 0;
+          keyCounts.set(key, priorCount + 1);
+          if (priorCount > 0) issues.push('Duplicate entry in this file.');
+          if (!preferredName) issues.push('Preferred/first name is required.');
+          if (!lastName) issues.push('Last name is required.');
+          if (!phoneDigits) {
+            issues.push('Phone number is required.');
+          } else if (phoneDigits.length !== 10) {
+            issues.push('Phone number must have 10 digits.');
+          }
+
+          if (issues.length) {
+            errors.push({ rowNumber, issues, row: raw });
+            if (key) seenKeys.add(key);
+            return;
+          }
+
+          seenKeys.add(key);
+          const payload = {
+            preferredName,
+            lastName,
+            phone: phoneDigits,
+            email,
+            address,
+            doNotText,
+            active: true
+          };
+          const displayName = `${preferredName} ${lastName}`.trim();
+          const match = existingByKey.get(key);
+          if (match){
+            const changes = {};
+            const changeDetails = [];
+            if (trimValue(match.preferredName) !== payload.preferredName){
+              changes.preferredName = payload.preferredName;
+              changeDetails.push({ label:'Preferred name', value: payload.preferredName || '—' });
+            }
+            if (trimValue(match.lastName) !== payload.lastName){
+              changes.lastName = payload.lastName;
+              changeDetails.push({ label:'Last name', value: payload.lastName || '—' });
+            }
+            if (cleanPhone(match.phone || '') !== payload.phone){
+              changes.phone = payload.phone;
+              changeDetails.push({ label:'Phone', value: formatPhoneDisplay(payload.phone) || '—' });
+            }
+            if (trimValue(match.email) !== payload.email){
+              changes.email = payload.email;
+              changeDetails.push({ label:'Email', value: payload.email || '—' });
+            }
+            if (trimValue(match.address) !== payload.address){
+              changes.address = payload.address;
+              changeDetails.push({ label:'Address', value: payload.address || '—' });
+            }
+            if (!!match.doNotText !== !!payload.doNotText){
+              changes.doNotText = payload.doNotText;
+              changeDetails.push({ label:'Do not text', value: payload.doNotText ? 'Yes' : 'No' });
+            }
+            if (match.active === false){
+              changes.active = true;
+              changeDetails.push({ label:'Status', value: 'Active' });
+            }
+            if (Object.keys(changes).length){
+              updates.push({ id: match.id, key, displayName, rowNumber, changes, changeDetails });
+            }
+          } else {
+            const newId = firestoreSafeId(key);
+            adds.push({
+              id: newId,
+              key,
+              displayName,
+              rowNumber,
+              payload,
+              phoneDisplay: formatPhoneDisplay(payload.phone),
+              email,
+              address
+            });
+          }
+        });
+
+        for (const [key, record] of existingByKey.entries()){
+          if (!seenKeys.has(key) && record.active !== false){
+            const name = `${trimValue(record.preferredName)} ${trimValue(record.lastName)}`.trim();
+            const fallbackPhone = formatPhoneDisplay(record.phone);
+            const fallbackEmail = trimValue(record.email);
+            const label = name || fallbackPhone || fallbackEmail || record.id;
+            deactivate.push({ id: record.id, key, displayName: label });
+          }
+        }
+
+        const preview = {
+          adds,
+          updates,
+          deactivate,
+          errors,
+          fileName: file.name,
+          totalRows: rows.length
         };
+        renderImportPreview(preview);
 
-        const match = existingByKey.get(key);
-        if (match){
-          await updateDoc(doc(db,'users',currentUser.uid,'elders',match.id), payload);
+        if (errors.length){
+          setImportStatus(`Found ${errors.length} issue${errors.length === 1 ? '' : 's'} that must be fixed before applying changes.`, 'error');
         } else {
-          const newId = firestoreSafeId(key);
-          await setDoc(doc(db,'users',currentUser.uid,'elders',newId), { ...payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 }, { merge:true });
-          existingByKey.set(key, { id:newId, ...payload });
+          const totalActions = adds.length + updates.length + deactivate.length;
+          if (totalActions){
+            setImportStatus(`Preview ready. Review and confirm ${totalActions} change${totalActions === 1 ? '' : 's'} before applying.`, 'info');
+          } else {
+            setImportStatus('No changes detected in the import file.', 'success');
+          }
+        }
+      } catch (error) {
+        console.error('Import preview failed:', error);
+        clearImportPreview();
+        setImportStatus('Unable to process that CSV. Please verify the file and try again.', 'error');
+      }
+    }
+    async function applyImportChanges(){
+      if (!importPreviewData){
+        setImportStatus('Generate a preview before applying changes.', 'warning');
+        return;
+      }
+      const { adds = [], updates = [], deactivate = [], errors = [] } = importPreviewData;
+      if (errors.length){
+        setImportStatus('Resolve the errors listed in the preview before applying changes.', 'error');
+        return;
+      }
+      const totalActions = adds.length + updates.length + deactivate.length;
+      if (!totalActions){
+        setImportStatus('No changes are pending from the preview.', 'info');
+        return;
+      }
+      if (!currentUser?.uid){
+        setImportStatus('Sign in to apply import changes.', 'error');
+        return;
+      }
+      const confirmed = await showConfirm(`Apply ${totalActions} change${totalActions === 1 ? '' : 's'} from this import?`, {
+        confirmText: 'Apply changes',
+        cancelText: 'Cancel'
+      });
+      if (!confirmed){
+        setImportStatus('Import cancelled.', 'warning');
+        return;
+      }
+      const applyBtn = applyImportBtn;
+      const originalText = applyBtn?.textContent;
+      if (applyBtn){
+        applyBtn.disabled = true;
+        applyBtn.setAttribute('aria-disabled', 'true');
+        applyBtn.textContent = 'Applying…';
+      }
+      try {
+        setImportStatus('Applying changes…', 'info');
+        const uid = currentUser.uid;
+        for (const add of adds){
+          await setDoc(doc(db,'users',uid,'elders',add.id), { ...add.payload, firstSeen: new Date(), attemptsSinceLastVisit: 0 }, { merge:true });
+        }
+        for (const update of updates){
+          await updateDoc(doc(db,'users',uid,'elders',update.id), update.changes);
+        }
+        for (const record of deactivate){
+          await updateDoc(doc(db,'users',uid,'elders',record.id), { active:false });
+        }
+        setImportStatus(`Applied ${totalActions} change${totalActions === 1 ? '' : 's'} successfully.`, 'success');
+        clearImportPreview();
+        if (applyBtn){
+          applyBtn.disabled = true;
+          applyBtn.setAttribute('aria-disabled', 'true');
+        }
+        const fileInput = q('csvFile');
+        if (fileInput) fileInput.value = '';
+      } catch (error) {
+        console.error('Apply import failed:', error);
+        setImportStatus('Unable to apply the import changes. Please try again.', 'error');
+      } finally {
+        if (applyBtn){
+          applyBtn.textContent = originalText || 'Apply changes';
+          const preview = importPreviewData;
+          if (preview){
+            const pending = (preview.adds?.length || 0) + (preview.updates?.length || 0) + (preview.deactivate?.length || 0);
+            const hasErrors = preview.errors?.length;
+            const disabled = hasErrors || !pending;
+            applyBtn.disabled = !!disabled;
+            applyBtn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+          } else {
+            applyBtn.disabled = true;
+            applyBtn.setAttribute('aria-disabled', 'true');
+          }
         }
       }
-
-      for (const [key, e] of existingByKey){
-        if (!seenKeys.has(key)){
-          await updateDoc(doc(db,'users',currentUser.uid,'elders',e.id), { active:false });
-        }
+    }
+    function downloadImportErrors(){
+      const errors = importPreviewData?.errors || [];
+      if (!errors.length){
+        setImportStatus('No error report available for download.', 'warning');
+        return;
       }
-      showSuccessToast('Import complete (idempotent).');
-    }, 'Unable to import that CSV. Please try again.');
+      const rows = errors.map(err => {
+        const row = err.row || {};
+        return {
+          RowNumber: err.rowNumber,
+          Issues: err.issues.join('; '),
+          PreferredName: row.PreferredName ?? row.FirstName ?? '',
+          LastName: row.LastName ?? '',
+          Phone: row.Phone ?? row.phone ?? '',
+          Email: row.Email ?? row.email ?? '',
+          Address: row.Address ?? row.address ?? ''
+        };
+      });
+      const csv = Papa.unparse(rows);
+      const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'import_errors.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setImportStatus('Downloaded error report.', 'info');
+    }
+    window.importCsv = importCsv;
+    window.applyImportChanges = applyImportChanges;
+    window.downloadImportErrors = downloadImportErrors;
 
     /* ---------- Fix duplicates ---------- */
     window.fixDuplicates = runAction(async ()=>{
