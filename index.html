@@ -22,6 +22,10 @@
     .toolbar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
     .toggle-inactive { display:flex; align-items:center; gap:.35rem; margin-left:.5rem; justify-content:flex-start; }
     .toggle-inactive span { white-space:nowrap; display:inline-flex; align-items:center; }
+    .history-filter { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+    .history-filter label { display:flex; align-items:center; gap:.35rem; font-size:.85rem; color:#374151; }
+    .history-filter label .input { width:11rem; }
+    .history-filter .btn { white-space:nowrap; }
     .btn { background:var(--brand); color:#fff; border:0; padding:.55rem .9rem; border-radius:12px; cursor:pointer; }
     .btn.outline { background:transparent; color:var(--brand); border:1px solid var(--brand); }
     .btn.light { background:#e5edff; color:var(--brand); }
@@ -37,6 +41,33 @@
     .subtle { font-size:.85rem; color:#6b7280; }
     table { width:100%; border-collapse:collapse; }
     th, td { padding:.5rem; border-bottom:1px solid var(--line); text-align:left; }
+    .history-preview-row { display:none; background:#f9fafb; }
+    .history-preview-row.open { display:table-row; }
+    .history-preview-row td { padding:0; border-bottom:1px solid var(--line); background:#f9fafb; }
+    .history-preview { padding:.75rem 1rem; display:flex; flex-direction:column; gap:.6rem; }
+    .history-preview-header { display:flex; flex-wrap:wrap; gap:.5rem; justify-content:space-between; align-items:center; }
+    .history-preview-summary { font-size:.85rem; color:#374151; }
+    .history-preview-range { font-size:.8rem; color:var(--muted); }
+    .history-preview-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.5rem; }
+    .history-preview-item { display:flex; flex-direction:column; gap:.25rem; padding:.55rem .65rem; border-radius:10px; border:1px solid var(--line); background:#fff; }
+    .history-preview-item-header { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; font-weight:600; color:#1f2937; }
+    .history-preview-meta { display:flex; gap:.5rem; flex-wrap:wrap; font-size:.8rem; color:var(--muted); }
+    .history-preview-notes { font-size:.85rem; color:#374151; white-space:pre-wrap; }
+    .history-preview-empty { font-size:.9rem; color:var(--muted); font-style:italic; }
+    .history-preview-actions { display:flex; flex-wrap:wrap; gap:.5rem; }
+    .history-overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; padding:1rem; z-index:45; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+    .history-overlay.open { opacity:1; pointer-events:auto; }
+    .history-modal { background:#fff; width:min(520px,100%); max-height:90vh; border-radius:16px; padding:1.25rem; box-shadow:0 20px 40px rgba(15,23,42,.2); border:1px solid rgba(15,23,42,.08); display:flex; flex-direction:column; gap:1rem; overflow:hidden; }
+    .history-modal-header { display:flex; gap:.75rem; justify-content:space-between; align-items:flex-start; }
+    .history-modal-title { font-size:1.05rem; font-weight:600; color:#1f2937; }
+    .history-modal-range { font-size:.85rem; color:var(--muted); }
+    .history-modal-body { flex:1; overflow:auto; display:flex; flex-direction:column; gap:.75rem; }
+    .history-modal-item { border:1px solid var(--line); border-radius:12px; padding:.75rem; display:flex; flex-direction:column; gap:.35rem; background:#f9fafb; }
+    .history-modal-item-header { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; justify-content:space-between; font-weight:600; color:#1f2937; }
+    .history-modal-item-meta { font-size:.85rem; color:var(--muted); display:flex; gap:.5rem; flex-wrap:wrap; }
+    .history-modal-item-notes { font-size:.9rem; color:#1f2937; white-space:pre-wrap; }
+    .history-modal-footer { display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; }
+    .history-modal-page { font-size:.85rem; color:#6b7280; }
     .section-title { margin:.25rem 0 .25rem; font-size:.95rem; color:#374151; }
     .thbtn { background:transparent; border:0; cursor:pointer; font:inherit; padding:0; color:#111827; }
     .thbtn span { margin-left:.25rem; color:#6b7280; }
@@ -72,6 +103,15 @@
       #view-elders tbody td.actions { display:flex; flex-wrap:wrap; gap:.4rem; }
       #view-elders tbody td.actions .btn { flex:1 1 calc(50% - .3rem); min-width:7rem; }
       #view-elders tbody td.actions .btn.danger { flex-basis:100%; }
+      .history-filter { width:100%; justify-content:flex-start; }
+      .history-filter label { width:100%; justify-content:space-between; }
+      .history-filter label .input { width:100%; }
+      .history-filter .btn { width:100%; }
+      #view-elders tbody tr.history-preview-row { display:none; padding:0; margin:0; border:0; }
+      #view-elders tbody tr.history-preview-row.open { display:block; background:#f9fafb; }
+      #view-elders tbody tr.history-preview-row td { padding:0; }
+      #view-elders tbody tr.history-preview-row td::before { display:none; }
+      .history-preview { padding:.75rem; }
       #currentUser { max-width:60vw; }
       .schedule-header { flex-direction:column; align-items:stretch; }
       .schedule-header-actions { width:100%; justify-content:space-between; }
@@ -150,6 +190,23 @@
       </div>
     </div>
   </div>
+  <div id="historyOverlay" class="history-overlay" aria-hidden="true">
+    <div class="history-modal" role="dialog" aria-modal="true" aria-labelledby="historyModalTitle">
+      <div class="history-modal-header">
+        <div>
+          <div id="historyModalTitle" class="history-modal-title"></div>
+          <div id="historyModalRange" class="history-modal-range"></div>
+        </div>
+        <button type="button" class="btn light" id="historyModalClose">Close</button>
+      </div>
+      <div id="historyModalBody" class="history-modal-body"></div>
+      <div class="history-modal-footer">
+        <button type="button" class="btn outline" id="historyModalPrev">◀ Prev</button>
+        <div id="historyModalPage" class="history-modal-page"></div>
+        <button type="button" class="btn outline" id="historyModalNext">Next ▶</button>
+      </div>
+    </div>
+  </div>
   <header class="card" style="border:none; border-radius:0">
     <h1>EQ Visit Tracker</h1>
     <nav>
@@ -222,6 +279,15 @@
           <input type="checkbox" id="hideInactive" checked>
           <span>Hide inactive</span>
         </label>
+        <div class="history-filter">
+          <label for="historyStart">From
+            <input type="date" id="historyStart" class="input" aria-label="Visit history start">
+          </label>
+          <label for="historyEnd">To
+            <input type="date" id="historyEnd" class="input" aria-label="Visit history end">
+          </label>
+          <button type="button" class="btn light" id="historyClear">Clear range</button>
+        </div>
         <div class="grow"></div>
         <span id="eldersCount" class="muted"></span>
       </div>
@@ -326,6 +392,11 @@
     const visits = [];
     const schedules = []; // users/{uid}/schedule
     let importPreviewData = null;
+    let visitGroupsCache = null;
+    let visitGroupsDirty = true;
+    const expandedHistory = new Set();
+    const historyModalState = { elderId:null, page:0 };
+    const HISTORY_PAGE_SIZE = 6;
 
     const q = id => document.getElementById(id);
     const cleanPhone = s => (s||'').replace(/\D/g,'');
@@ -348,6 +419,14 @@
     const importPreviewDetailsEl = q('importPreviewDetails');
     const applyImportBtn = q('applyImportBtn');
     const downloadImportErrorsBtn = q('downloadImportErrorsBtn');
+    const historyOverlay = q('historyOverlay');
+    const historyModalBody = q('historyModalBody');
+    const historyModalTitle = q('historyModalTitle');
+    const historyModalRange = q('historyModalRange');
+    const historyModalPage = q('historyModalPage');
+    const historyModalCloseBtn = q('historyModalClose');
+    const historyModalPrevBtn = q('historyModalPrev');
+    const historyModalNextBtn = q('historyModalNext');
     let confirmResolver = null;
     let confirmActive = false;
     let confirmLastFocus = null;
@@ -513,6 +592,86 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+    const visitDateMs = (visit)=>{
+      if (!visit) return 0;
+      const raw = visit.visitDate ?? visit.date ?? visit.createdAt ?? null;
+      if (!raw) return 0;
+      if (typeof raw === 'number') return raw;
+      if (raw instanceof Date) return raw.getTime();
+      if (typeof raw === 'string') {
+        const ms = Date.parse(raw);
+        return isNaN(ms) ? 0 : ms;
+      }
+      if (typeof raw === 'object' && typeof raw.toDate === 'function') {
+        const d = raw.toDate();
+        return d instanceof Date && !isNaN(+d) ? d.getTime() : 0;
+      }
+      if (raw && typeof raw.seconds === 'number') {
+        return raw.seconds * 1000;
+      }
+      return 0;
+    };
+    const visitDisplayDate = (visit)=>{
+      if (!visit) return '—';
+      const raw = visit.visitDate ?? visit.date ?? visit.createdAt ?? null;
+      return fmtDate(raw);
+    };
+    const pluralize = (value, word) => `${value} ${word}${value === 1 ? '' : 's'}`;
+    const buildVisitGroups = ()=>{
+      const map = new Map();
+      for (const v of visits){
+        if (!v || !v.elderId) continue;
+        if (!map.has(v.elderId)) map.set(v.elderId, []);
+        map.get(v.elderId).push(v);
+      }
+      map.forEach(arr => arr.sort((a,b)=> visitDateMs(b) - visitDateMs(a)));
+      return map;
+    };
+    const getVisitGroups = ()=>{
+      if (!visitGroupsCache || visitGroupsDirty){
+        visitGroupsCache = buildVisitGroups();
+        visitGroupsDirty = false;
+      }
+      return visitGroupsCache;
+    };
+    const parseDateInputValue = (value, endOfDay = false)=>{
+      if (!value) return null;
+      const date = new Date(value);
+      if (isNaN(+date)) return null;
+      if (endOfDay) {
+        date.setHours(23,59,59,999);
+      } else {
+        date.setHours(0,0,0,0);
+      }
+      return date.getTime();
+    };
+    const getHistoryRange = ()=>{
+      const startInput = q('historyStart');
+      const endInput = q('historyEnd');
+      const startMs = parseDateInputValue(startInput?.value || '', false);
+      const endMs = parseDateInputValue(endInput?.value || '', true);
+      return { startMs, endMs };
+    };
+    const filterVisitsByRange = (list, range)=>{
+      if (!Array.isArray(list)) return [];
+      const { startMs, endMs } = range || {};
+      if (!startMs && !endMs) return [...list];
+      return list.filter(v => {
+        const ms = visitDateMs(v);
+        if (!ms) return !startMs && !endMs;
+        if (startMs && ms < startMs) return false;
+        if (endMs && ms > endMs) return false;
+        return true;
+      });
+    };
+    const buildRangeLabel = (range)=>{
+      const { startMs, endMs } = range || {};
+      if (!startMs && !endMs) return 'All time';
+      const opts = { year:'numeric', month:'short', day:'numeric' };
+      const startLabel = startMs ? new Date(startMs).toLocaleDateString(undefined, opts) : 'Any time';
+      const endLabel = endMs ? new Date(endMs).toLocaleDateString(undefined, opts) : 'Present';
+      return `${startLabel} – ${endLabel}`;
+    };
 
     const buildImportSection = (title, count, bodyHtml, variant = '') => {
       const variantClass = variant ? ` ${variant}` : '';
@@ -777,6 +936,7 @@
       unsubVisits = onSnapshot(userCol('visits'), (snap)=>{
         visits.length = 0;
         snap.forEach(d => visits.push({ id: d.id, ...d.data() }));
+        visitGroupsDirty = true;
         renderAll();
       });
       unsubSchedule = onSnapshot(userCol('schedule'), (snap)=>{
@@ -791,7 +951,19 @@
     onAuthStateChanged(auth, (user)=>{
       currentUser = user;
       updateAuthUI(user);
-      if (user) subscribeData(); else { unsubscribeData(); elders.clear(); visits.length=0; schedules.length=0; renderAll(); }
+      if (user) subscribeData();
+      else {
+        unsubscribeData();
+        elders.clear();
+        visits.length = 0;
+        schedules.length = 0;
+        visitGroupsCache = null;
+        visitGroupsDirty = true;
+        expandedHistory.clear();
+        historyModalState.elderId = null;
+        closeHistoryModal();
+        renderAll();
+      }
     });
     window.signIn = runAction(async ()=>{
       await signInWithEmailAndPassword(auth, q('email').value.trim(), q('password').value.trim());
@@ -838,11 +1010,34 @@
         sortDir = (sortBy==='visited' || sortBy==='attempts') ? 'desc' : 'asc';
         renderElders();
       });
+      const onRangeChange = ()=>{
+        historyModalState.page = 0;
+        renderElders();
+        if (historyModalState.elderId) renderHistoryModal();
+      };
+      q('historyStart')?.addEventListener('change', onRangeChange);
+      q('historyEnd')?.addEventListener('change', onRangeChange);
+      q('historyClear')?.addEventListener('click', ()=>{
+        const start = q('historyStart');
+        const end = q('historyEnd');
+        if (start) start.value = '';
+        if (end) end.value = '';
+        onRangeChange();
+      });
     };
     function wireWeekNav(){
       q('weekPrevBtn')?.addEventListener('click', ()=> shiftSelectedWeek(-1));
       q('weekNextBtn')?.addEventListener('click', ()=> shiftSelectedWeek(1));
       q('weekTodayBtn')?.addEventListener('click', ()=> setSelectedWeek(getScheduleMonday()));
+    }
+    function wireHistoryModal(){
+      historyModalCloseBtn?.addEventListener('click', ()=> closeHistoryModal());
+      historyModalPrevBtn?.addEventListener('click', ()=> changeHistoryModalPage(-1));
+      historyModalNextBtn?.addEventListener('click', ()=> changeHistoryModalPage(1));
+      historyOverlay?.addEventListener('click', (event)=>{ if (event.target === historyOverlay) closeHistoryModal(); });
+      document.addEventListener('keydown', (event)=>{
+        if (event.key === 'Escape' && historyModalState.elderId) closeHistoryModal();
+      });
     }
 
     /* ---------- Queue settings (rolling 12m + texting cooldown) ---------- */
@@ -894,7 +1089,14 @@
       if (name==='log') fillLogSelect();
       updateSortArrows(); updateCounters(); window.scrollTo({top:0, behavior:'smooth'});
     };
-    function renderAll(){ renderNext(); renderElders(); fillLogSelect(); updateSortArrows(); updateCounters(); }
+    function renderAll(){
+      renderNext();
+      renderElders();
+      fillLogSelect();
+      updateSortArrows();
+      updateCounters();
+      if (historyModalState.elderId) renderHistoryModal();
+    }
 
     // --- Next Up (cards) + “recent texts” + schedule ---
     function renderNext(){
@@ -1042,11 +1244,66 @@
     }
 
     /* ---------- Directory ---------- */
+    const buildHistoryPreview = (elder, visitGroups, range)=>{
+      const visitsForElder = visitGroups.get(elder.id) || [];
+      const filtered = filterVisitsByRange(visitsForElder, range);
+      const previewVisits = filtered.slice(0, 3);
+      const total = visitsForElder.length;
+      const summaryBase = total
+        ? (filtered.length ? `${pluralize(filtered.length, 'visit')} in range` : 'No visits in range')
+        : 'No visits recorded yet.';
+      const totalSuffix = total ? ` • ${pluralize(total, 'total visit')}` : '';
+      const summaryText = summaryBase + totalSuffix;
+      const rangeLabel = buildRangeLabel(range);
+      const detailParts = [];
+      if (rangeLabel) detailParts.push(rangeLabel);
+      const remainder = filtered.length - previewVisits.length;
+      if (remainder > 0) detailParts.push(`${pluralize(remainder, 'more visit')} in range`);
+      const detailHtml = detailParts.length
+        ? `<div class="history-preview-range">${detailParts.map(part => escapeHtml(part)).join(' • ')}</div>`
+        : '';
+      let listSection = '';
+      if (previewVisits.length){
+        const itemsHtml = previewVisits.map(v=>{
+          const dateHtml = escapeHtml(visitDisplayDate(v));
+          const outcomeHtml = escapeHtml(v.outcome || 'Visited');
+          const metaParts = [];
+          if (v.visitors) metaParts.push(`Visitors: ${escapeHtml(v.visitors)}`);
+          const metaHtml = metaParts.length ? `<div class="history-preview-meta">${metaParts.join(' • ')}</div>` : '';
+          const notesHtml = v.notes ? `<div class="history-preview-notes">${escapeHtml(v.notes)}</div>` : '';
+          return `<li class="history-preview-item">
+            <div class="history-preview-item-header"><span>${dateHtml}</span><span>${outcomeHtml}</span></div>
+            ${metaHtml}
+            ${notesHtml}
+          </li>`;
+        }).join('');
+        listSection = `<ul class="history-preview-list">${itemsHtml}</ul>`;
+      } else {
+        const emptyMessage = total ? 'No visits in selected range.' : 'No visits to show yet.';
+        listSection = `<div class="history-preview-empty">${escapeHtml(emptyMessage)}</div>`;
+      }
+      const elderIdHtml = escapeHtml(elder.id);
+      return `
+        <div class="history-preview">
+          <div class="history-preview-header">
+            <div class="history-preview-summary">${escapeHtml(summaryText)}</div>
+            ${detailHtml}
+          </div>
+          ${listSection}
+          <div class="history-preview-actions">
+            <button type="button" class="btn outline" onclick="openHistoryModal(&quot;${elderIdHtml}&quot;)">Open full history</button>
+          </div>
+        </div>
+      `;
+    };
+
     window.renderElders = renderElders;
     function renderElders(){
       const tb = q('eldersTbody');
       const tokens = norm(q('searchElders').value).split(/\s+/).filter(Boolean);
       const hideInactive = q('hideInactive').checked;
+      const visitGroups = getVisitGroups();
+      const range = getHistoryRange();
 
       let arr = Array.from(elders.values())
         .filter(e => (!hideInactive || e.active!==false))
@@ -1076,6 +1333,15 @@
         const nameHtml = escapeHtml([e.preferredName, e.lastName].filter(Boolean).join(' ').trim());
         const visitedHtml = escapeHtml(fmtDate(e.lastVisited));
         const attemptsHtml = escapeHtml(String(e.attemptsSinceLastVisit||0));
+        const isExpanded = expandedHistory.has(e.id);
+        const previewRowId = `history-${e.id}`;
+        const historyButtonLabel = isExpanded ? 'Hide history' : 'History';
+        const previewHtml = buildHistoryPreview(e, visitGroups, range);
+        const expandedAttr = isExpanded ? 'true' : 'false';
+        const previewRowClass = `history-preview-row${isExpanded ? ' open' : ''}`;
+        const previewRowIdHtml = escapeHtml(previewRowId);
+        const historyButtonLabelHtml = escapeHtml(historyButtonLabel);
+        const elderIdHtml = escapeHtml(e.id);
 
         return `<tr class="${inactive?'inactive':''}">
           <td class="namecell" data-label="Name">${nameHtml}</td>
@@ -1089,12 +1355,97 @@
             <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
             <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
             <button class="btn outline" onclick="adjustMenu('${e.id}')">Adjust…</button>
+            <button class="btn light" onclick="toggleHistoryPreview(&quot;${elderIdHtml}&quot;)" aria-expanded="${expandedAttr}" aria-controls="${previewRowIdHtml}">${historyButtonLabelHtml}</button>
             <button class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabelHtml}</button>
           </td>
+        </tr>
+        <tr id="${previewRowIdHtml}" class="${previewRowClass}" data-elder="${elderIdHtml}">
+          <td colspan="7">${previewHtml}</td>
         </tr>`;
       }).join('');
 
       updateSortArrows(); updateCounters();
+    }
+
+    window.toggleHistoryPreview = (elderId)=>{
+      if (!elderId) return;
+      if (expandedHistory.has(elderId)) expandedHistory.delete(elderId);
+      else expandedHistory.add(elderId);
+      renderElders();
+    };
+
+    window.openHistoryModal = (elderId)=>{
+      if (!elderId) return;
+      historyModalState.elderId = elderId;
+      historyModalState.page = 0;
+      renderHistoryModal();
+      if (historyOverlay){
+        historyOverlay.classList.add('open');
+        historyOverlay.setAttribute('aria-hidden', 'false');
+      }
+    };
+
+    function closeHistoryModal(){
+      if (!historyOverlay) return;
+      historyOverlay.classList.remove('open');
+      historyOverlay.setAttribute('aria-hidden', 'true');
+      historyModalState.elderId = null;
+    }
+
+    function changeHistoryModalPage(delta){
+      if (!historyModalState.elderId) return;
+      historyModalState.page += delta;
+      if (historyModalState.page < 0) historyModalState.page = 0;
+      renderHistoryModal();
+    }
+
+    function renderHistoryModal(){
+      if (!historyModalState.elderId || !historyModalBody) return;
+      const elder = elders.get(historyModalState.elderId);
+      const visitGroups = getVisitGroups();
+      const range = getHistoryRange();
+      const visitsForElder = visitGroups.get(historyModalState.elderId) || [];
+      const filtered = filterVisitsByRange(visitsForElder, range);
+      const total = filtered.length;
+      const totalPages = total ? Math.ceil(total / HISTORY_PAGE_SIZE) : 0;
+      if (totalPages && historyModalState.page >= totalPages) historyModalState.page = totalPages - 1;
+      if (!totalPages) historyModalState.page = 0;
+      const startIndex = historyModalState.page * HISTORY_PAGE_SIZE;
+      const pageItems = filtered.slice(startIndex, startIndex + HISTORY_PAGE_SIZE);
+
+      const displayName = elder ? [elder.preferredName, elder.lastName].filter(Boolean).join(' ').trim() : '';
+      if (historyModalTitle) historyModalTitle.textContent = displayName || 'Visit history';
+      if (historyModalRange) historyModalRange.textContent = buildRangeLabel(range);
+
+      if (pageItems.length){
+        historyModalBody.innerHTML = pageItems.map(v=>{
+          const dateHtml = escapeHtml(visitDisplayDate(v));
+          const outcomeHtml = escapeHtml(v.outcome || 'Visited');
+          const metaParts = [];
+          if (v.visitors) metaParts.push(`Visitors: ${escapeHtml(v.visitors)}`);
+          const metaHtml = metaParts.length ? `<div class="history-modal-item-meta">${metaParts.join(' • ')}</div>` : '';
+          const notesHtml = v.notes ? `<div class="history-modal-item-notes">${escapeHtml(v.notes)}</div>` : '';
+          return `<div class="history-modal-item">
+            <div class="history-modal-item-header"><span>${dateHtml}</span><span>${outcomeHtml}</span></div>
+            ${metaHtml}
+            ${notesHtml}
+          </div>`;
+        }).join('');
+      } else {
+        const hasRange = !!(range.startMs || range.endMs);
+        const message = hasRange ? 'No visits in selected range.' : 'No visits recorded yet.';
+        historyModalBody.innerHTML = `<div class="history-preview-empty">${escapeHtml(message)}</div>`;
+      }
+
+      if (historyModalPage){
+        historyModalPage.textContent = totalPages ? `Page ${historyModalState.page + 1} of ${totalPages}` : 'No visits';
+      }
+      if (historyModalPrevBtn){
+        historyModalPrevBtn.disabled = historyModalState.page <= 0 || totalPages <= 1;
+      }
+      if (historyModalNextBtn){
+        historyModalNextBtn.disabled = !totalPages || historyModalState.page >= totalPages - 1;
+      }
     }
 
     function fillLogSelect(){
@@ -1839,6 +2190,7 @@
     window.showView('next');
     wireWeekNav();
     wireSearch();
+    wireHistoryModal();
   </script>
 
   <!-- Firestore Security Rules
