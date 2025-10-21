@@ -101,6 +101,27 @@
     .confirm-message { font-size:.95rem; color:#1f2937; }
     .confirm-buttons { display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; }
     .confirm-overlay button { min-width:0; }
+    .modal-overlay { position:fixed; inset:0; background:rgba(15,23,42,.42); display:flex; align-items:center; justify-content:center; padding:1.5rem;
+      z-index:45; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+    .modal-overlay.open { opacity:1; pointer-events:auto; }
+    .modal { background:#fff; width:min(520px,100%); border-radius:18px; padding:1.5rem; box-shadow:0 22px 48px rgba(15,23,42,.2);
+      border:1px solid rgba(15,23,42,.08); display:flex; flex-direction:column; gap:1.25rem; max-height:90vh; overflow:auto; }
+    .modal-header { display:flex; flex-direction:column; gap:.35rem; }
+    .modal-title { margin:0; font-size:1.2rem; color:#111827; }
+    .modal-subtitle { margin:0; color:#6b7280; font-size:.9rem; }
+    .modal-body { display:grid; gap:.75rem; }
+    .modal-body label { display:flex; flex-direction:column; gap:.25rem; color:#374151; font-size:.85rem; }
+    .modal-body label span { font-weight:600; color:#1f2937; font-size:.9rem; }
+    .modal-body .required { color:var(--bad); margin-left:.25rem; font-weight:600; }
+    .modal-body textarea { min-height:96px; resize:vertical; }
+    .modal-options { display:flex; align-items:center; gap:.5rem; }
+    .modal-error { color:var(--bad); font-size:.85rem; min-height:1rem; visibility:hidden; }
+    .modal-actions { display:flex; flex-wrap:wrap; gap:.75rem; justify-content:space-between; align-items:center; }
+    .modal-extra-actions { display:flex; flex-wrap:wrap; gap:.5rem; }
+    .modal-primary-actions { display:flex; flex-wrap:wrap; gap:.5rem; margin-left:auto; }
+    .checkbox-row { display:flex; align-items:center; gap:.5rem; }
+    .checkbox-row input { width:auto; }
+    .btn.danger.outline { background:transparent; color:var(--bad); border:1px solid var(--bad); }
   </style>
 </head>
 <body>
@@ -112,6 +133,53 @@
         <button type="button" class="btn outline" data-cancel>Cancel</button>
         <button type="button" class="btn" data-confirm>Confirm</button>
       </div>
+    </div>
+  </div>
+  <div id="elderModalOverlay" class="modal-overlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="elderModalTitle">
+      <form id="elderModalForm" novalidate>
+        <div class="modal-header">
+          <h2 id="elderModalTitle" class="modal-title">Elder details</h2>
+          <p id="elderModalSubtitle" class="modal-subtitle"></p>
+        </div>
+        <div class="modal-body">
+          <label for="elderPreferredName">
+            <span>Preferred name<span class="required" aria-hidden="true">*</span></span>
+            <input id="elderPreferredName" class="input" name="preferredName" autocomplete="given-name" required>
+          </label>
+          <label for="elderLastName">
+            <span>Last name</span>
+            <input id="elderLastName" class="input" name="lastName" autocomplete="family-name">
+          </label>
+          <label for="elderPhone">
+            <span>Phone</span>
+            <input id="elderPhone" class="input" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(123) 456-7890">
+          </label>
+          <label for="elderEmail">
+            <span>Email</span>
+            <input id="elderEmail" class="input" name="email" type="email" autocomplete="email">
+          </label>
+          <label for="elderAddress">
+            <span>Address</span>
+            <textarea id="elderAddress" class="input" name="address" autocomplete="street-address"></textarea>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="elderDoNotText" name="doNotText">
+            <span>Do not text this elder</span>
+          </label>
+        </div>
+        <div id="elderModalError" class="modal-error" role="alert" aria-live="polite"></div>
+        <div class="modal-actions">
+          <div id="elderModalExtra" class="modal-extra-actions">
+            <button type="button" class="btn danger outline" data-reset>Reset last visit</button>
+            <button type="button" class="btn danger outline" data-remove>Remove last ask</button>
+          </div>
+          <div class="modal-primary-actions">
+            <button type="button" class="btn outline" data-cancel>Cancel</button>
+            <button type="submit" class="btn" data-submit>Save</button>
+          </div>
+        </div>
+      </form>
     </div>
   </div>
   <header class="card" style="border:none; border-radius:0">
@@ -170,7 +238,7 @@
           <option value="attempts">Attempts (recent first)</option>
           <option value="phone">Phone</option>
         </select>
-        <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
+        <button class="btn outline" onclick="openAddElderModal()">Quick add</button>
         <label class="toggle-inactive">
           <input type="checkbox" id="hideInactive" checked>
           <span>Hide inactive</span>
@@ -271,6 +339,18 @@
 
     const q = id => document.getElementById(id);
     const cleanPhone = s => (s||'').replace(/\D/g,'');
+    const formatPhoneNumber = (value = '') => {
+      let digits = cleanPhone(value);
+      if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
+      if (!digits) return '';
+      if (digits.length === 10) {
+        return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+      }
+      if (digits.length === 7) {
+        return `${digits.slice(0,3)}-${digits.slice(3)}`;
+      }
+      return digits;
+    };
     const norm = s => (s||'').toString().trim().toLowerCase();
     const defaultErrorMessage = 'Something went wrong. Please try again.';
     const toastHost = document.getElementById('toastHost');
@@ -381,6 +461,161 @@
     window.showSuccessToast = showSuccessToast;
     window.showErrorToast = showErrorToast;
     window.showConfirm = showConfirm;
+
+    const elderModalOverlay = q('elderModalOverlay');
+    const elderModalForm = q('elderModalForm');
+    const elderModalTitle = q('elderModalTitle');
+    const elderModalSubtitle = q('elderModalSubtitle');
+    const elderPreferredInput = q('elderPreferredName');
+    const elderLastInput = q('elderLastName');
+    const elderPhoneInput = q('elderPhone');
+    const elderEmailInput = q('elderEmail');
+    const elderAddressInput = q('elderAddress');
+    const elderDoNotTextInput = q('elderDoNotText');
+    const elderModalError = q('elderModalError');
+    const elderModalCancel = elderModalOverlay?.querySelector('[data-cancel]');
+    const elderModalSubmit = elderModalOverlay?.querySelector('[data-submit]');
+    const elderModalReset = elderModalOverlay?.querySelector('[data-reset]');
+    const elderModalRemove = elderModalOverlay?.querySelector('[data-remove]');
+    const elderModalExtra = q('elderModalExtra');
+
+    let elderModalActive = false;
+    let elderModalResolver = null;
+    let elderModalLastFocus = null;
+
+    const setElderModalError = (text) => {
+      if (!elderModalError) return;
+      elderModalError.textContent = text || '';
+      elderModalError.style.visibility = text ? 'visible' : 'hidden';
+    };
+
+    const collectElderModalValues = () => {
+      const preferredName = (elderPreferredInput?.value || '').trim();
+      const lastName = (elderLastInput?.value || '').trim();
+      const email = (elderEmailInput?.value || '').trim();
+      const address = (elderAddressInput?.value || '').trim();
+      const doNotText = !!elderDoNotTextInput?.checked;
+      const formattedPhone = elderPhoneInput ? formatPhoneNumber(elderPhoneInput.value) : '';
+      if (elderPhoneInput) elderPhoneInput.value = formattedPhone;
+      return { preferredName, lastName, phone: formattedPhone, email, address, doNotText };
+    };
+
+    const validateElderModal = () => {
+      const values = collectElderModalValues();
+      const errors = [];
+      if (!values.preferredName) {
+        errors.push('Preferred name is required.');
+      }
+      const phoneDigits = cleanPhone(values.phone);
+      if (values.phone && phoneDigits && phoneDigits.length < 10) {
+        errors.push('Phone number must include 10 digits.');
+      }
+      if (values.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
+        errors.push('Email address looks invalid.');
+      }
+      return { values, errors };
+    };
+
+    const closeElderModal = (result) => {
+      if (!elderModalActive || !elderModalOverlay) return;
+      elderModalActive = false;
+      elderModalOverlay.classList.remove('open');
+      elderModalOverlay.setAttribute('aria-hidden', 'true');
+      elderModalForm?.reset();
+      setElderModalError('');
+      const resolver = elderModalResolver;
+      elderModalResolver = null;
+      const focusTarget = elderModalLastFocus;
+      elderModalLastFocus = null;
+      if (focusTarget && typeof focusTarget.focus === 'function') {
+        setTimeout(() => focusTarget.focus(), 0);
+      }
+      if (typeof resolver === 'function') resolver(result || null);
+    };
+
+    const showElderModal = ({ mode = 'add', elder = {}, title, subtitle, submitLabel } = {}) => {
+      if (!elderModalOverlay || !elderModalForm) return Promise.resolve(null);
+      if (elderModalActive) closeElderModal(null);
+      return new Promise((resolve) => {
+        elderModalResolver = resolve;
+        elderModalActive = true;
+        elderModalLastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const resolvedTitle = title || (mode === 'add' ? 'Add elder' : 'Edit elder');
+        const resolvedSubtitle = subtitle || (mode === 'adjust'
+          ? 'Update details or perform an advanced adjustment.'
+          : mode === 'add'
+            ? 'Capture contact details so we can reach out later.'
+            : 'Make sure phone numbers and emails are up to date.');
+        if (elderModalTitle) elderModalTitle.textContent = resolvedTitle;
+        if (elderModalSubtitle) {
+          elderModalSubtitle.textContent = resolvedSubtitle || '';
+          elderModalSubtitle.style.display = resolvedSubtitle ? 'block' : 'none';
+        }
+        if (elderPreferredInput) elderPreferredInput.value = elder.preferredName || '';
+        if (elderLastInput) elderLastInput.value = elder.lastName || '';
+        if (elderPhoneInput) elderPhoneInput.value = formatPhoneNumber(elder.phone || '');
+        if (elderEmailInput) elderEmailInput.value = elder.email || '';
+        if (elderAddressInput) elderAddressInput.value = elder.address || '';
+        if (elderDoNotTextInput) elderDoNotTextInput.checked = !!elder.doNotText;
+        if (elderModalSubmit) elderModalSubmit.textContent = submitLabel || (mode === 'add' ? 'Add elder' : 'Save changes');
+        if (elderModalExtra) elderModalExtra.style.display = mode === 'adjust' ? 'flex' : 'none';
+        setElderModalError('');
+        elderModalOverlay.classList.add('open');
+        elderModalOverlay.setAttribute('aria-hidden', 'false');
+        requestAnimationFrame(() => {
+          if (elderPreferredInput) {
+            elderPreferredInput.focus();
+            elderPreferredInput.select?.();
+          }
+        });
+      });
+    };
+
+    elderModalCancel?.addEventListener('click', () => closeElderModal(null));
+    elderModalOverlay?.addEventListener('click', (event) => {
+      if (event.target === elderModalOverlay) closeElderModal(null);
+    });
+    elderModalOverlay?.addEventListener('keydown', (event) => {
+      if (!elderModalActive) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeElderModal(null);
+      } else if (event.key === 'Tab') {
+        const focusable = Array.from(elderModalOverlay.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+          .filter(el => el instanceof HTMLElement && el.offsetParent !== null);
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    });
+    elderModalForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const { values, errors } = validateElderModal();
+      if (errors.length) {
+        setElderModalError(errors[0]);
+        return;
+      }
+      closeElderModal({ action: 'submit', values });
+    });
+    elderModalForm?.addEventListener('input', () => setElderModalError(''));
+    elderPhoneInput?.addEventListener('blur', () => {
+      elderPhoneInput.value = formatPhoneNumber(elderPhoneInput.value);
+    });
+    elderModalReset?.addEventListener('click', () => {
+      closeElderModal({ action: 'reset-visit' });
+    });
+    elderModalRemove?.addEventListener('click', () => {
+      closeElderModal({ action: 'remove-ask' });
+    });
+
+    window.showElderModal = showElderModal;
 
     const runAction = (asyncFn, message = defaultErrorMessage) => async (...args) => {
       try {
@@ -623,7 +858,8 @@
         const askedTxt = tx.lastDateMs ? `Last text: ${new Date(tx.lastDateMs).toLocaleDateString()}${tx.count?` • ${tx.count}×/6m`:''}` : 'No texts yet';
         const displayName = [e.preferredName, e.lastName].filter(Boolean).join(' ').trim();
         const nameHtml = escapeHtml(displayName);
-        const phoneHtml = escapeHtml(e.phone||'');
+        const phoneText = formatPhoneNumber(e.phone || '') || (e.phone || '');
+        const phoneHtml = escapeHtml(phoneText);
         const askedHtml = escapeHtml(askedTxt);
         const diffHtml = escapeHtml(diff);
         const name = (e.preferredName || e.lastName || 'there');
@@ -737,8 +973,11 @@
         const statusPill = inactive ? `<span class="pill gray">Inactive</span>` : `<span class="pill ok">Active</span>`;
         const archiveLabel = inactive ? 'Unarchive' : 'Archive';
         const archiveLabelHtml = escapeHtml(archiveLabel);
-        const phoneDisplay = escapeHtml(e.phone||'');
-        const telLink = e.phone ? `<a href="tel:+1${cleanPhone(e.phone)}">${phoneDisplay}</a>` : '';
+        const formattedPhone = formatPhoneNumber(e.phone || '');
+        const phoneText = formattedPhone || (e.phone || '');
+        const phoneDisplay = escapeHtml(phoneText);
+        const phoneDigits = cleanPhone(e.phone || '');
+        const phoneCell = phoneDigits ? `<a href="tel:+1${phoneDigits}">${phoneDisplay}</a>` : phoneDisplay;
 
         const tx = texts6mInfo(e);
         const askedCell = tx.lastDateMs ? `${new Date(tx.lastDateMs).toLocaleDateString()}${tx.count?` • ${tx.count}×/6m`:''}` : '—';
@@ -749,7 +988,7 @@
 
         return `<tr class="${inactive?'inactive':''}">
           <td class="namecell" data-label="Name">${nameHtml}</td>
-          <td data-label="Phone">${telLink || ''}</td>
+          <td data-label="Phone">${phoneCell || ''}</td>
           <td data-label="Last visited">${visitedHtml}</td>
           <td data-label="Attempts">${attemptsHtml}</td>
           <td data-label="Asked">${askedHtml}</td>
@@ -758,7 +997,7 @@
             <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
             <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
             <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
-            <button class="btn outline" onclick="adjustMenu('${e.id}')">Adjust…</button>
+            <button class="btn outline" onclick="adjustElder('${e.id}')">Adjust…</button>
             <button class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabelHtml}</button>
           </td>
         </tr>`;
@@ -848,30 +1087,36 @@
       });
     }, 'Unable to record the no-answer attempt. Please try again.');
 
-    window.addElderPrompt = runAction(async ()=>{
-      const name = prompt('Preferred name and last name (e.g., John Doe)?');
-      if (!name) return;
-      const phone = prompt('Phone (optional)') || '';
-      const [preferredName, ...rest] = name.split(' ');
-      const lastName = rest.join(' ');
+    const prepareElderUpdate = (values = {}) => ({
+      preferredName: values.preferredName || '',
+      lastName: values.lastName || '',
+      phone: values.phone || '',
+      email: values.email || '',
+      address: values.address || '',
+      doNotText: !!values.doNotText
+    });
+
+    window.openAddElderModal = runAction(async ()=>{
+      const result = await showElderModal({ mode: 'add' });
+      if (!result || result.action !== 'submit') return;
+      const payload = prepareElderUpdate(result.values);
       await addDoc(userCol('elders'), {
-        preferredName, lastName, phone, active: true, firstSeen: new Date(),
-        attemptsSinceLastVisit: 0, doNotText: false
+        ...payload,
+        active: true,
+        firstSeen: new Date(),
+        attemptsSinceLastVisit: 0
       });
+      showSuccessToast('Elder added.');
     }, 'Unable to add that elder. Please try again.');
 
     window.editElder = runAction(async (id)=>{
       const e = elders.get(id); if (!e) return;
-      const name = prompt('Edit name', `${e.preferredName||''} ${e.lastName||''}`) || '';
-      const phone = prompt('Edit phone', e.phone||'') || '';
-      const doNotText = await showConfirm('Mark as Do Not Text?', {
-        confirmText: 'Yes',
-        cancelText: 'No'
-      });
-      const [preferredName, ...rest] = name.split(' ');
-      const lastName = rest.join(' ');
+      const result = await showElderModal({ mode: 'edit', elder: e });
+      if (!result || result.action !== 'submit') return;
+      const payload = prepareElderUpdate(result.values);
       const ref = doc(db, 'users', currentUser.uid, 'elders', id);
-      await updateDoc(ref, { preferredName, lastName, phone, doNotText });
+      await updateDoc(ref, payload);
+      showSuccessToast('Elder updated.');
     }, 'Unable to update that elder. Please try again.');
 
     window.toggleArchive = runAction(async (id, isInactive)=>{
@@ -889,16 +1134,21 @@
       }
     }, 'Unable to change the archive state. Please try again.');
 
-    // Adjust menu: reset visit or remove last ask (with double-check)
-    window.adjustMenu = runAction(async (id)=>{
+    // Advanced adjustments live in the elder modal (reset visit / remove ask)
+    window.adjustElder = runAction(async (id)=>{
       const e = elders.get(id); if (!e) return;
-      const choice = prompt(
-        'Type 1 or 2 (or Cancel):\n' +
-        '1) Reset last visit (treat as not visited)\n' +
-        '2) Remove last ask (decrement attempts & remove latest text log)\n' +
-        'Cancel) anything else'
-      );
-      if (choice === '1'){
+      const result = await showElderModal({ mode: 'adjust', elder: e });
+      if (!result) return;
+
+      if (result.action === 'submit') {
+        const payload = prepareElderUpdate(result.values);
+        const ref = doc(db, 'users', currentUser.uid, 'elders', id);
+        await updateDoc(ref, payload);
+        showSuccessToast('Elder updated.');
+        return;
+      }
+
+      if (result.action === 'reset-visit') {
         const confirmed = await showConfirm('Are you sure you want to reset LAST VISIT for this elder?', {
           confirmText: 'Reset visit',
           cancelText: 'Cancel',
@@ -909,10 +1159,13 @@
         await updateDoc(ref, {
           lastVisited: null,
           lastContacted: serverTimestamp(),
-          attemptsSinceLastVisit: increment(1) // bump—still need to ask again
+          attemptsSinceLastVisit: increment(1)
         });
         showSuccessToast('Last visit reset.');
-      } else if (choice === '2'){
+        return;
+      }
+
+      if (result.action === 'remove-ask') {
         const confirmed = await showConfirm('Are you sure you want to remove the MOST RECENT ASK?', {
           confirmText: 'Remove ask',
           cancelText: 'Cancel',
@@ -926,11 +1179,9 @@
         await updateDoc(ref, {
           textHistory: hist,
           attemptsSinceLastVisit: newAttempts,
-          lastTexted: null // UI will compute from history anyway
+          lastTexted: null
         });
         showSuccessToast('Most recent ask removed.');
-      } else {
-        // no-op
       }
     }, 'Unable to adjust that record. Please try again.');
 
