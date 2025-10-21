@@ -81,9 +81,39 @@
     .list { display:flex; flex-direction:column; gap:.5rem; }
     .row { display:flex; gap:.5rem; align-items:center; justify-content:space-between; }
     .row .who { font-weight:600; }
+    .toast-host { position:fixed; top:1rem; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:.5rem;
+      z-index:50; width:min(90vw,360px); pointer-events:none; }
+    .toast { background:#fff; color:#111827; border-radius:12px; box-shadow:0 16px 32px rgba(15,23,42,.12);
+      border:1px solid rgba(15,23,42,.08); padding:.75rem 1rem; display:flex; align-items:center; gap:.75rem;
+      opacity:0; transform:translateY(-8px); transition:opacity .18s ease, transform .18s ease; pointer-events:auto; }
+    .toast.show { opacity:1; transform:translateY(0); }
+    .toast::before { content:''; display:inline-block; width:.6rem; height:.6rem; border-radius:999px; background:var(--brand); }
+    .toast.success::before { background:var(--ok); }
+    .toast.error::before { background:var(--bad); }
+    .toast button.toast-close { margin-left:auto; background:none; border:0; color:inherit; cursor:pointer; padding:.25rem;
+      font-size:1.1rem; line-height:1; display:flex; align-items:center; justify-content:center; border-radius:8px; }
+    .toast button.toast-close:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+    .confirm-overlay { position:fixed; inset:0; background:rgba(15,23,42,.38); display:flex; align-items:center; justify-content:center;
+      padding:1rem; z-index:40; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+    .confirm-overlay.open { opacity:1; pointer-events:auto; }
+    .confirm-modal { background:#fff; width:min(360px,100%); border-radius:16px; padding:1.25rem; box-shadow:0 18px 40px rgba(15,23,42,.2);
+      border:1px solid rgba(15,23,42,.08); display:flex; flex-direction:column; gap:1rem; }
+    .confirm-message { font-size:.95rem; color:#1f2937; }
+    .confirm-buttons { display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; }
+    .confirm-overlay button { min-width:0; }
   </style>
 </head>
 <body>
+  <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+  <div id="confirmOverlay" class="confirm-overlay" aria-hidden="true">
+    <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmMessage">
+      <div id="confirmMessage" class="confirm-message"></div>
+      <div class="confirm-buttons">
+        <button type="button" class="btn outline" data-cancel>Cancel</button>
+        <button type="button" class="btn" data-confirm>Confirm</button>
+      </div>
+    </div>
+  </div>
   <header class="card" style="border:none; border-radius:0">
     <h1>EQ Visit Tracker</h1>
     <nav>
@@ -243,13 +273,123 @@
     const cleanPhone = s => (s||'').replace(/\D/g,'');
     const norm = s => (s||'').toString().trim().toLowerCase();
     const defaultErrorMessage = 'Something went wrong. Please try again.';
+    const toastHost = document.getElementById('toastHost');
+    const confirmOverlay = document.getElementById('confirmOverlay');
+    const confirmMessageEl = document.getElementById('confirmMessage');
+    const confirmOkBtn = confirmOverlay?.querySelector('[data-confirm]');
+    const confirmCancelBtn = confirmOverlay?.querySelector('[data-cancel]');
+    let confirmResolver = null;
+    let confirmActive = false;
+    let confirmLastFocus = null;
+
+    const hideToastElement = (toast) => {
+      if (!toast) return;
+      toast.classList.remove('show');
+      const remove = () => toast.remove();
+      toast.addEventListener('transitionend', remove, { once: true });
+      if (toast._toastTimeout) window.clearTimeout(toast._toastTimeout);
+    };
+    const showToast = (message, { variant = 'info', duration = 4000, dismissible = true } = {}) => {
+      if (!toastHost) return;
+      const toast = document.createElement('div');
+      toast.className = `toast ${variant}`;
+      toast.setAttribute('role', variant === 'error' ? 'alert' : 'status');
+
+      const text = document.createElement('span');
+      text.textContent = message || '';
+      toast.appendChild(text);
+
+      if (dismissible) {
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'toast-close';
+        closeBtn.setAttribute('aria-label', 'Dismiss notification');
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('click', () => hideToastElement(toast));
+        toast.appendChild(closeBtn);
+      }
+
+      toastHost.appendChild(toast);
+      requestAnimationFrame(() => toast.classList.add('show'));
+
+      if (duration !== null) {
+        toast._toastTimeout = window.setTimeout(() => hideToastElement(toast), duration);
+      }
+      return toast;
+    };
+    const showSuccessToast = (message, options = {}) => showToast(message, { variant: 'success', ...options });
+    const showErrorToast = (message, options = {}) => showToast(message, { variant: 'error', ...options });
+    const closeConfirm = (result) => {
+      if (!confirmActive) return;
+      confirmActive = false;
+      confirmOverlay.classList.remove('open');
+      confirmOverlay.setAttribute('aria-hidden', 'true');
+      const resolver = confirmResolver;
+      confirmResolver = null;
+      const focusTarget = confirmLastFocus;
+      confirmLastFocus = null;
+      if (typeof resolver === 'function') resolver(result);
+      if (focusTarget && typeof focusTarget.focus === 'function') {
+        setTimeout(() => focusTarget.focus(), 0);
+      }
+    };
+    const showConfirm = (message, { confirmText = 'Confirm', cancelText = 'Cancel', variant = 'primary' } = {}) => {
+      if (!confirmOverlay || !confirmMessageEl || !confirmOkBtn || !confirmCancelBtn) {
+        return Promise.resolve(window.confirm ? window.confirm(message) : true);
+      }
+      if (confirmActive) closeConfirm(false);
+
+      return new Promise((resolve) => {
+        confirmResolver = resolve;
+        confirmActive = true;
+        confirmLastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        confirmMessageEl.textContent = message || '';
+        confirmOkBtn.textContent = confirmText;
+        confirmCancelBtn.textContent = cancelText;
+        confirmOkBtn.classList.remove('danger');
+        if (variant === 'danger') confirmOkBtn.classList.add('danger');
+        confirmOverlay.classList.add('open');
+        confirmOverlay.setAttribute('aria-hidden', 'false');
+        requestAnimationFrame(() => confirmOkBtn.focus());
+      });
+    };
+    confirmOkBtn?.addEventListener('click', () => closeConfirm(true));
+    confirmCancelBtn?.addEventListener('click', () => closeConfirm(false));
+    confirmOverlay?.addEventListener('click', (event) => {
+      if (event.target === confirmOverlay) closeConfirm(false);
+    });
+    confirmOverlay?.addEventListener('keydown', (event) => {
+      if (!confirmActive) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeConfirm(false);
+      } else if (event.key === 'Tab') {
+        const focusables = [confirmCancelBtn, confirmOkBtn].filter(Boolean);
+        if (!focusables.length) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    });
+    window.showToast = showToast;
+    window.showSuccessToast = showSuccessToast;
+    window.showErrorToast = showErrorToast;
+    window.showConfirm = showConfirm;
+
     const runAction = (asyncFn, message = defaultErrorMessage) => async (...args) => {
       try {
         return await asyncFn(...args);
       } catch (error) {
         console.error('Action failed:', error);
         const msg = typeof message === 'function' ? message(error, ...args) : message;
-        alert(msg || defaultErrorMessage);
+        const text = msg || defaultErrorMessage;
+        showToast(text, { variant: 'error' });
       }
     };
     const firestoreSafeId = (key)=>{
@@ -670,7 +810,10 @@
       const outcome = q('logOutcome').value;
       const visitors = q('logVisitors').value.trim();
       const notes = q('logNotes').value.trim();
-      if (!elderId || !dateStr) return alert('Pick elder and date');
+      if (!elderId || !dateStr) {
+        showErrorToast('Pick elder and date.');
+        return;
+      }
       const visit = { elderId, visitDate: dateStr, outcome, visitors, notes, createdAt: new Date() };
       await addDoc(userCol('visits'), visit);
       const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
@@ -684,7 +827,7 @@
       }
       await updateDoc(ref, update);
       q('logNotes').value='';
-      alert('Saved.');
+      showSuccessToast('Saved visit.');
     }, 'Unable to save the visit. Please try again.');
 
     window.quickLogVisit = runAction(async (elderId)=>{
@@ -721,7 +864,10 @@
       const e = elders.get(id); if (!e) return;
       const name = prompt('Edit name', `${e.preferredName||''} ${e.lastName||''}`) || '';
       const phone = prompt('Edit phone', e.phone||'') || '';
-      const doNotText = confirm('Mark as Do Not Text? Click OK for Yes, Cancel for No');
+      const doNotText = await showConfirm('Mark as Do Not Text?', {
+        confirmText: 'Yes',
+        cancelText: 'No'
+      });
       const [preferredName, ...rest] = name.split(' ');
       const lastName = rest.join(' ');
       const ref = doc(db, 'users', currentUser.uid, 'elders', id);
@@ -733,7 +879,12 @@
       if (isInactive) {
         await updateDoc(ref, { active: true });
       } else {
-        if (!confirm('Archive this elder (set inactive)?')) return;
+        const confirmed = await showConfirm('Archive this elder (set inactive)?', {
+          confirmText: 'Archive',
+          cancelText: 'Keep active',
+          variant: 'danger'
+        });
+        if (!confirmed) return;
         await updateDoc(ref, { active: false });
       }
     }, 'Unable to change the archive state. Please try again.');
@@ -748,16 +899,26 @@
         'Cancel) anything else'
       );
       if (choice === '1'){
-        if (!confirm('Are you sure you want to reset LAST VISIT for this elder?')) return;
+        const confirmed = await showConfirm('Are you sure you want to reset LAST VISIT for this elder?', {
+          confirmText: 'Reset visit',
+          cancelText: 'Cancel',
+          variant: 'danger'
+        });
+        if (!confirmed) return;
         const ref = doc(db, 'users', currentUser.uid, 'elders', id);
         await updateDoc(ref, {
           lastVisited: null,
           lastContacted: serverTimestamp(),
           attemptsSinceLastVisit: increment(1) // bump—still need to ask again
         });
-        alert('Last visit reset.');
+        showSuccessToast('Last visit reset.');
       } else if (choice === '2'){
-        if (!confirm('Are you sure you want to remove the MOST RECENT ASK?')) return;
+        const confirmed = await showConfirm('Are you sure you want to remove the MOST RECENT ASK?', {
+          confirmText: 'Remove ask',
+          cancelText: 'Cancel',
+          variant: 'danger'
+        });
+        if (!confirmed) return;
         const hist = Array.isArray(e.textHistory) ? [...e.textHistory] : [];
         if (hist.length) hist.pop();
         const newAttempts = Math.max(0, (e.attemptsSinceLastVisit||0)-1);
@@ -767,7 +928,7 @@
           attemptsSinceLastVisit: newAttempts,
           lastTexted: null // UI will compute from history anyway
         });
-        alert('Most recent ask removed.');
+        showSuccessToast('Most recent ask removed.');
       } else {
         // no-op
       }
@@ -822,7 +983,10 @@
     }
     window.importCsv = runAction(async ()=>{
       const file = q('csvFile').files[0];
-      if (!file) return alert('Choose a CSV file.');
+      if (!file) {
+        showErrorToast('Choose a CSV file.');
+        return;
+      }
       const rows = await parseCsv(file);
 
       const snap = await getDocs(userCol('elders'));
@@ -863,13 +1027,18 @@
           await updateDoc(doc(db,'users',currentUser.uid,'elders',e.id), { active:false });
         }
       }
-      alert('Import complete (idempotent).');
+      showSuccessToast('Import complete (idempotent).');
     }, 'Unable to import that CSV. Please try again.');
 
     /* ---------- Fix duplicates ---------- */
     window.fixDuplicates = runAction(async ()=>{
-      if (!confirm('Merge duplicates (preserve visit history)?')) return;
-      const uid = currentUser?.uid; if (!uid) return alert('Sign in first.');
+      const confirmed = await showConfirm('Merge duplicates (preserve visit history)?', {
+        confirmText: 'Merge duplicates',
+        cancelText: 'Cancel',
+        variant: 'danger'
+      });
+      if (!confirmed) return;
+      const uid = currentUser?.uid; if (!uid) { showErrorToast('Sign in first.'); return; }
 
       const es = await getDocs(userCol('elders'));
       const items = es.docs.map(d=>({ id:d.id, ...d.data() }));
@@ -972,7 +1141,7 @@
           mergedCount++;
         }
       }
-      alert(`Fixed ${mergedCount} duplicate record(s).`);
+      showSuccessToast(`Fixed ${mergedCount} duplicate record(s).`);
     }, 'Unable to fix duplicates right now. Please try again.');
 
     /* ---------- Scheduling helpers ---------- */
@@ -986,10 +1155,14 @@
         createdAt: new Date(),
         status: 'Confirmed'
       });
-      alert('Confirmed for Wednesday.');
+      showSuccessToast('Confirmed for Wednesday.');
     }, 'Unable to confirm that visit. Please try again.');
     window.unschedule = runAction(async (scheduleId)=>{
-      if (!confirm('Remove from this week’s plan?')) return;
+      const confirmed = await showConfirm('Remove from this week’s plan?', {
+        confirmText: 'Remove',
+        cancelText: 'Keep'
+      });
+      if (!confirmed) return;
       await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
     }, 'Unable to unschedule that visit. Please try again.');
     const nextWeekMonday = (weekOf)=>{
@@ -1004,7 +1177,11 @@
       if (!s) return;
       const e = elders.get(s.elderId);
       if (!e) return;
-      if (!confirm(`Move ${e.preferredName||e.lastName||'this elder'} to next Wednesday?`)) return;
+      const confirmedMove = await showConfirm(`Move ${e.preferredName||e.lastName||'this elder'} to next Wednesday?`, {
+        confirmText: 'Move',
+        cancelText: 'Cancel'
+      });
+      if (!confirmedMove) return;
 
       const upcomingMonday = nextWeekMonday(s.weekOf);
       const existing = schedules.find(x=> x.elderId===s.elderId && asMs(x.weekOf) === upcomingMonday.getTime());
@@ -1027,12 +1204,17 @@
       }
 
       await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
-      alert('Moved to next Wednesday.');
+      showSuccessToast('Moved to next Wednesday.');
     }, 'Unable to move that visit. Please try again.');
     window.markVisitedFromSchedule = runAction(async (scheduleId)=>{
       const s = schedules.find(x=>x.id===scheduleId); if (!s) return;
       const e = elders.get(s.elderId); if (!e) return;
-      if (!confirm(`Mark ${e.preferredName||e.lastName||'this elder'} as visited (this Wed)?`)) return;
+      const confirmedVisit = await showConfirm(`Mark ${e.preferredName||e.lastName||'this elder'} as visited (this Wed)?`, {
+        confirmText: 'Mark visited',
+        cancelText: 'Cancel',
+        variant: 'danger'
+      });
+      if (!confirmedVisit) return;
       const wed = wednesdayOfWeek(s.weekOf);
       // update elder
       await updateDoc(doc(db,'users',currentUser.uid,'elders',s.elderId), {
@@ -1047,18 +1229,21 @@
       });
       // remove from schedule list now that it is complete
       await deleteDoc(doc(db,'users',currentUser.uid,'schedule',scheduleId));
-      alert('Marked visited.');
+      showSuccessToast('Marked visited.');
     }, 'Unable to mark that visit right now. Please try again.');
 
     window.pickThisWeek = runAction(async ()=>{
       const arr = Array.from(elders.values()).filter(e => e.active!==false && !e.doNotText && cleanPhone(e.phone||'').length);
       arr.forEach(e => e._score = nextUpScore(e));
       arr.sort((a,b)=> b._score - a._score);
-      if (!arr.length) return alert('No eligible elders.');
+      if (!arr.length) {
+        showToast('No eligible elders.', { variant: 'info' });
+        return;
+      }
       const chosen = arr[0];
       const monday = getScheduleMonday();
       await addDoc(userCol('schedule'), { weekOf:monday, elderId:chosen.id, elderName:(chosen.preferredName||'')+' '+(chosen.lastName||''), createdAt:new Date(), status:'Planned' });
-      alert('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||'' ));
+      showSuccessToast('Picked: ' + (chosen.preferredName||'') + ' ' + (chosen.lastName||''));
     }, 'Unable to pick an elder this week. Please try again.');
 
     /* ---------- Start ---------- */
