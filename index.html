@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8">
   <!-- prevent zoom-on-focus on iOS + keep layout snug -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>EQ Visit Tracker</title>
-  <meta name="theme-color" content="#145AFF" />
+  <meta name="theme-color" content="#145AFF">
   <link rel="manifest" href="manifest.webmanifest">
   <style>
     :root {
@@ -19,6 +19,7 @@
     header h1 { font-size:1.1rem; margin:0; color:var(--brand); }
     .grow { flex:1; min-width:.5rem; }
     .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:1rem; }
+    .card-tight { padding:.75rem; }
     .toolbar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
     .toggle-inactive { display:flex; align-items:center; gap:.35rem; margin-left:.5rem; justify-content:flex-start; }
     .toggle-inactive span { white-space:nowrap; display:inline-flex; align-items:center; }
@@ -36,6 +37,7 @@
     .pill.ok{ border-color:var(--ok); color:var(--ok); } .pill.warn{ border-color:var(--warn); color:var(--warn); }
     .pill.bad{ border-color:var(--bad); color:var(--bad); } .pill.gray{ border-color:#9ca3af; color:#6b7280; }
     nav { display:flex; gap:.5rem; }
+    .is-hidden { display:none !important; }
     main { padding:1rem; max-width:1100px; margin:0 auto; display:grid; gap:1rem; }
     .muted { color:var(--muted); }
     .subtle { font-size:.85rem; color:#6b7280; }
@@ -55,6 +57,7 @@
     .history-preview-notes { font-size:.85rem; color:#374151; white-space:pre-wrap; }
     .history-preview-empty { font-size:.9rem; color:var(--muted); font-style:italic; }
     .history-preview-actions { display:flex; flex-wrap:wrap; gap:.5rem; }
+    .section-title-flush { margin-top:0; }
     .history-overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; padding:1rem; z-index:45; opacity:0; pointer-events:none; transition:opacity .2s ease; }
     .history-overlay.open { opacity:1; pointer-events:auto; }
     .history-modal { background:#fff; width:min(520px,100%); max-height:90vh; border-radius:16px; padding:1.25rem; box-shadow:0 20px 40px rgba(15,23,42,.2); border:1px solid rgba(15,23,42,.08); display:flex; flex-direction:column; gap:1rem; overflow:hidden; }
@@ -120,6 +123,7 @@
 
     /* “two-up” area on Next Up */
     .twoup { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+    .twoup-spaced { margin-bottom:.5rem; }
     @media (max-width:800px){ .twoup { grid-template-columns:1fr; } }
     .list { display:flex; flex-direction:column; gap:.5rem; }
     .row { display:flex; gap:.5rem; align-items:center; justify-content:space-between; }
@@ -135,6 +139,12 @@
     .status-pill.confirmed { background:#ecfdf5; color:#047857; border-color:#6ee7b7; }
     .status-pill.visited { background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; }
     .status-pill.neutral { background:#f3f4f6; color:#374151; border-color:#d1d5db; }
+    .card-row { display:flex; align-items:center; }
+    .card-row-between { justify-content:space-between; }
+    .card-title { font-weight:700; }
+    .card-subline { margin:.25rem 0; }
+    .card-actions { display:flex; gap:.5rem; margin-top:.35rem; flex-wrap:wrap; }
+    .status-detail { display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; }
     .toast-host { position:fixed; top:1rem; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:.5rem;
       z-index:50; width:min(90vw,360px); pointer-events:none; }
     .toast { background:#fff; color:#111827; border-radius:12px; box-shadow:0 16px 32px rgba(15,23,42,.12);
@@ -156,12 +166,41 @@
     .confirm-buttons { display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; }
     .confirm-overlay button { min-width:0; }
 
+    .elder-overlay { position:fixed; inset:0; background:rgba(15,23,42,.38); display:flex; align-items:center; justify-content:center;
+      padding:1rem; z-index:42; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+    .elder-overlay.open { opacity:1; pointer-events:auto; }
+    .elder-modal { background:#fff; width:min(560px,100%); max-height:92vh; border-radius:16px; padding:1.25rem; box-shadow:0 20px 44px rgba(15,23,42,.22);
+      border:1px solid rgba(15,23,42,.08); display:flex; flex-direction:column; gap:1rem; overflow:hidden; }
+    .elder-modal-header { display:flex; justify-content:space-between; align-items:flex-start; gap:.75rem; }
+    .elder-modal-title { font-size:1.05rem; font-weight:600; color:#1f2937; }
+    .elder-modal-form { display:flex; flex-direction:column; gap:.75rem; flex:1; }
+    .elder-modal-content { display:flex; flex-direction:column; gap:.75rem; flex:1; overflow:auto; padding-right:.25rem; }
+    .elder-form-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:.75rem; }
+    .elder-field { display:flex; flex-direction:column; gap:.3rem; font-size:.85rem; color:#374151; }
+    .elder-field input,
+    .elder-field textarea { width:100%; }
+    .elder-field-check { display:flex; flex-direction:row; align-items:center; gap:.5rem; font-size:.85rem; color:#374151; padding:.65rem .75rem;
+      border:1px solid var(--line); border-radius:10px; background:#f9fafb; }
+    .elder-field-check input { width:auto; }
+    .elder-field-full { grid-column:1 / -1; }
+    .elder-form-error { display:none; font-size:.85rem; color:var(--bad); background:#fef2f2; border:1px solid #fecaca;
+      border-radius:10px; padding:.6rem .75rem; }
+    .elder-form-error.show { display:block; }
+    .elder-advanced { display:flex; flex-direction:column; gap:.5rem; border:1px solid var(--line); border-radius:12px; padding:.75rem;
+      background:#f9fafb; }
+    .elder-advanced-title { font-weight:600; color:#1f2937; font-size:.9rem; }
+    .elder-advanced-buttons { display:flex; flex-wrap:wrap; gap:.5rem; }
+    .elder-advanced-meta { font-size:.8rem; color:#4b5563; }
+    .elder-modal-footer { display:flex; gap:.5rem; justify-content:flex-end; flex-wrap:wrap; }
+    .btn.outline.danger { color:var(--bad); border:1px solid var(--bad); background:transparent; }
+    .btn.outline.danger:hover { background:rgba(239,68,68,.08); }
+
     .import-status { margin-top:.75rem; padding:.75rem; border-radius:12px; border:1px solid transparent; display:none; font-size:.9rem; }
     .import-status.info { background:#eef2ff; color:#3730a3; border-color:#c7d2fe; }
     .import-status.success { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
     .import-status.error { background:#fef2f2; color:#b91c1c; border-color:#fecaca; }
     .import-status.warning { background:#fffbeb; color:#92400e; border-color:#fcd34d; }
-    .import-preview { display:none; }
+    .import-preview[hidden] { display:none; }
     .import-preview-summary { display:flex; flex-direction:column; gap:.25rem; font-size:.9rem; }
     .import-preview-details { display:flex; flex-direction:column; gap:.75rem; margin-top:.75rem; }
     .import-preview-section { border:1px solid var(--line); border-radius:12px; padding:.75rem; background:#f9fafb; }
@@ -169,6 +208,10 @@
     .import-preview-section-title { font-weight:600; margin-bottom:.35rem; }
     .import-preview-section table { width:100%; border-collapse:collapse; font-size:.85rem; }
     .import-preview-section th, .import-preview-section td { padding:.35rem .5rem; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    .import-actions { margin-top:.5rem; display:flex; gap:.5rem; flex-wrap:wrap; }
+    .mt-half { margin-top:.5rem; }
+    .mt-one { margin-top:1rem; }
+    .log-notes { width:100%; height:90px; margin-top:.5rem; }
     .import-preview-section tbody tr:last-child td { border-bottom:none; }
     .import-preview-empty { color:var(--muted); font-style:italic; }
     .import-preview-footer { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:1rem; }
@@ -181,7 +224,7 @@
 </head>
 <body>
   <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
-  <div id="confirmOverlay" class="confirm-overlay" aria-hidden="true">
+  <div id="confirmOverlay" class="confirm-overlay" hidden>
     <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmMessage">
       <div id="confirmMessage" class="confirm-message"></div>
       <div class="confirm-buttons">
@@ -190,7 +233,7 @@
       </div>
     </div>
   </div>
-  <div id="historyOverlay" class="history-overlay" aria-hidden="true">
+  <div id="historyOverlay" class="history-overlay" hidden>
     <div class="history-modal" role="dialog" aria-modal="true" aria-labelledby="historyModalTitle">
       <div class="history-modal-header">
         <div>
@@ -207,45 +250,98 @@
       </div>
     </div>
   </div>
-  <header class="card" style="border:none; border-radius:0">
+  <div id="elderOverlay" class="elder-overlay" hidden>
+    <div class="elder-modal" role="dialog" aria-modal="true" aria-labelledby="elderModalTitle">
+      <div class="elder-modal-header">
+        <div id="elderModalTitle" class="elder-modal-title"></div>
+        <button type="button" class="btn light" id="elderModalClose">Close</button>
+      </div>
+      <form id="elderForm" class="elder-modal-form">
+        <div class="elder-modal-content">
+          <div class="elder-form-grid">
+            <label class="elder-field">
+              <span>Preferred name</span>
+              <input id="elderPreferredName" class="input" type="text" autocomplete="given-name">
+            </label>
+            <label class="elder-field">
+              <span>Last name</span>
+              <input id="elderLastName" class="input" type="text" autocomplete="family-name">
+            </label>
+            <label class="elder-field">
+              <span>Phone</span>
+              <input id="elderPhone" class="input" type="tel" inputmode="tel" autocomplete="tel">
+            </label>
+            <label class="elder-field">
+              <span>Email</span>
+              <input id="elderEmail" class="input" type="email" autocomplete="email">
+            </label>
+            <label class="elder-field elder-field-full">
+              <span>Address</span>
+              <textarea id="elderAddress" class="input" rows="2" autocomplete="street-address"></textarea>
+            </label>
+            <label class="elder-field elder-field-check elder-field-full">
+              <input id="elderDoNotText" type="checkbox">
+              <span>Mark as “Do Not Text”</span>
+            </label>
+          </div>
+          <div id="elderFormError" class="elder-form-error" aria-hidden="true"></div>
+          <div id="elderAdvancedActions" class="elder-advanced" hidden>
+            <div class="elder-advanced-title">Advanced actions</div>
+            <div id="elderAdvancedMeta" class="elder-advanced-meta"></div>
+            <div class="elder-advanced-buttons">
+              <button type="button" class="btn outline danger" id="elderResetVisitBtn">Reset last visit</button>
+              <button type="button" class="btn outline danger" id="elderRemoveAskBtn">Remove last ask</button>
+            </div>
+            <div class="subtle">Resetting the last visit clears the visit date and adds one ask. Removing the last ask drops the most recent text/ask entry and reduces the attempt count.</div>
+          </div>
+        </div>
+        <div class="elder-modal-footer">
+          <div class="grow"></div>
+          <button type="button" class="btn light" id="elderCancelBtn">Cancel</button>
+          <button type="submit" class="btn" id="elderSaveBtn">Save changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <header>
     <h1>EQ Visit Tracker</h1>
     <nav>
-      <button class="btn light" onclick="showView('next')">Next Up</button>
-      <button class="btn light" onclick="showView('elders')">Directory</button>
-      <button class="btn light" onclick="showView('log')">Log Visit</button>
-      <button class="btn light" onclick="showView('import')">Import</button>
+      <button type="button" class="btn light" onclick="showView('next')">Next Up</button>
+      <button type="button" class="btn light" onclick="showView('elders')">Directory</button>
+      <button type="button" class="btn light" onclick="showView('log')">Log Visit</button>
+      <button type="button" class="btn light" onclick="showView('import')">Import</button>
     </nav>
     <div class="grow"></div>
     <div id="authBox">
       <span id="currentUser" class="muted"></span>
-      <input id="email" class="input" placeholder="Email" autocomplete="username">
+      <input id="email" class="input" type="email" placeholder="Email" autocomplete="username">
       <input id="password" class="input" type="password" placeholder="Password" autocomplete="current-password">
-      <button class="btn" id="signinBtn" onclick="signIn()">Sign in</button>
-      <button class="btn outline" id="createBtn" onclick="create()">Create</button>
-      <button class="btn danger" id="logoutBtn" onclick="signOut()" style="display:none">Sign out</button>
+      <button type="button" class="btn" id="signinBtn" onclick="signIn()">Sign in</button>
+      <button type="button" class="btn outline" id="createBtn" onclick="create()">Create</button>
+      <button type="button" class="btn danger is-hidden" id="logoutBtn" onclick="signOut()">Sign out</button>
     </div>
   </header>
 
   <main>
     <!-- NEXT UP -->
-    <section id="view-next" class="card" style="display:none">
+    <section id="view-next" class="card" hidden>
       <!-- new: “recent texts” and “this week” -->
-      <div class="twoup" style="margin-bottom:.5rem">
-        <div class="card" style="padding:.75rem">
+      <div class="twoup twoup-spaced">
+        <div class="card card-tight">
           <div class="section-title">Recently texted (last 10 days)</div>
           <div id="recentTexts" class="list"></div>
         </div>
-        <div class="card" style="padding:.75rem">
+        <div class="card card-tight">
           <div class="section-title">Scheduled visits</div>
           <div class="schedule-header">
-            <button class="btn outline" id="weekPrevBtn">◀ Prev</button>
+            <button type="button" class="btn outline" id="weekPrevBtn">◀ Prev</button>
             <div class="week-label">
               <div id="scheduleWeekLabel"></div>
               <div id="scheduleWeekContext" class="subtle"></div>
             </div>
             <div class="schedule-header-actions">
-              <button class="btn outline" id="weekTodayBtn">This week</button>
-              <button class="btn outline" id="weekNextBtn">Next ▶</button>
+              <button type="button" class="btn outline" id="weekTodayBtn">This week</button>
+              <button type="button" class="btn outline" id="weekNextBtn">Next ▶</button>
             </div>
           </div>
           <div id="thisWeek" class="list"></div>
@@ -253,9 +349,9 @@
       </div>
 
       <div class="toolbar">
-        <input id="searchNext" class="input" placeholder="Search name/phone/email/address">
-        <button class="btn outline" id="btnSearchNext">Search</button>
-        <button class="btn outline" id="pickWeekBtn" onclick="pickThisWeek()">Pick next elder (for this week)</button>
+        <input id="searchNext" class="input" type="search" placeholder="Search name/phone/email/address">
+        <button type="button" class="btn outline" id="btnSearchNext">Search</button>
+        <button type="button" class="btn outline" id="pickWeekBtn" onclick="pickThisWeek()">Pick next elder (for this week)</button>
         <div class="grow"></div>
         <span id="yearRemaining" class="muted"></span>
       </div>
@@ -264,26 +360,26 @@
     </section>
 
     <!-- DIRECTORY -->
-    <section id="view-elders" class="card" style="display:none">
+    <section id="view-elders" class="card" hidden>
       <div class="toolbar">
-        <input id="searchElders" class="input" placeholder="Search name/phone/address/email">
-        <button class="btn outline" id="btnSearchElders">Search</button>
+        <input id="searchElders" class="input" type="search" placeholder="Search name/phone/address/email">
+        <button type="button" class="btn outline" id="btnSearchElders">Search</button>
         <select id="sortSelect" class="input" title="Sort">
           <option value="name">First name</option>
           <option value="visited">Last visited</option>
           <option value="attempts">Attempts (recent first)</option>
           <option value="phone">Phone</option>
         </select>
-        <button class="btn outline" onclick="addElderPrompt()">Quick add</button>
+        <button type="button" class="btn outline" onclick="openElderModal('add')">Add elder</button>
         <label class="toggle-inactive">
           <input type="checkbox" id="hideInactive" checked>
           <span>Hide inactive</span>
         </label>
         <div class="history-filter">
-          <label for="historyStart">From
+          <label>From
             <input type="date" id="historyStart" class="input" aria-label="Visit history start">
           </label>
-          <label for="historyEnd">To
+          <label>To
             <input type="date" id="historyEnd" class="input" aria-label="Visit history end">
           </label>
           <button type="button" class="btn light" id="historyClear">Clear range</button>
@@ -295,10 +391,10 @@
       <table>
         <thead>
           <tr>
-            <th><button class="thbtn" onclick="setSort('name')">Name <span id="sort-name"></span></button></th>
-            <th><button class="thbtn" onclick="setSort('phone')">Phone <span id="sort-phone"></span></button></th>
-            <th><button class="thbtn" onclick="setSort('visited')">Last visited <span id="sort-visited"></span></button></th>
-            <th><button class="thbtn" onclick="setSort('attempts')">Attempts <span id="sort-attempts"></span></button></th>
+            <th><button type="button" class="thbtn" onclick="setSort('name')">Name <span id="sort-name"></span></button></th>
+            <th><button type="button" class="thbtn" onclick="setSort('phone')">Phone <span id="sort-phone"></span></button></th>
+            <th><button type="button" class="thbtn" onclick="setSort('visited')">Last visited <span id="sort-visited"></span></button></th>
+            <th><button type="button" class="thbtn" onclick="setSort('attempts')">Attempts <span id="sort-attempts"></span></button></th>
             <th>Asked</th>
             <th>Status</th>
             <th>Actions</th>
@@ -309,7 +405,7 @@
     </section>
 
     <!-- LOG -->
-    <section id="view-log" class="card" style="display:none">
+    <section id="view-log" class="card" hidden>
       <div class="toolbar">
         <select id="logElderSelect"></select>
         <input type="date" id="logDate" class="input">
@@ -319,36 +415,36 @@
           <option>No answer</option>
           <option>Reschedule</option>
         </select>
-        <input id="logVisitors" class="input" placeholder="Visitors (e.g., Presidency)">
+        <input id="logVisitors" class="input" type="text" placeholder="Visitors (e.g., Presidency)">
       </div>
-      <textarea id="logNotes" class="input" placeholder="Notes" style="width:100%; height:90px; margin-top:.5rem"></textarea>
-      <div style="margin-top:.5rem">
-        <button class="btn" onclick="saveVisit()">Save visit</button>
+      <textarea id="logNotes" class="input log-notes" placeholder="Notes"></textarea>
+      <div class="mt-half">
+        <button type="button" class="btn" onclick="saveVisit()">Save visit</button>
       </div>
     </section>
 
     <!-- IMPORT / EXPORT -->
-    <section id="view-import" class="card" style="display:none">
+    <section id="view-import" class="card" hidden>
       <div class="section-title">Import Elders CSV (see template)</div>
       <input type="file" id="csvFile" accept=".csv">
-      <div style="margin-top:.5rem; display:flex; gap:.5rem; flex-wrap:wrap">
-        <button class="btn" onclick="importCsv()">Preview import</button>
-        <button class="btn outline" onclick="exportBackup()">Export backup (JSON)</button>
-        <button class="btn outline" onclick="exportCsv()">Export CSV</button>
-        <button class="btn danger" onclick="fixDuplicates()">Fix duplicates</button>
+      <div class="import-actions">
+        <button type="button" class="btn" onclick="importCsv()">Preview import</button>
+        <button type="button" class="btn outline" onclick="exportBackup()">Export backup (JSON)</button>
+        <button type="button" class="btn outline" onclick="exportCsv()">Export CSV</button>
+        <button type="button" class="btn danger" onclick="fixDuplicates()">Fix duplicates</button>
         <a class="btn outline" href="elders_template.csv" download>Download template</a>
       </div>
-      <p class="muted" style="margin-top:.5rem">
+      <p class="muted mt-half">
         Preview the changes before applying. Import remains idempotent (safe to run multiple times). Missing records become <b>inactive</b> and visit history is preserved.
       </p>
       <div id="importStatus" class="import-status" role="status" aria-live="polite" aria-hidden="true"></div>
-      <div id="importPreviewCard" class="card import-preview" style="display:none; margin-top:1rem" aria-hidden="true">
-        <div class="section-title" style="margin-top:0">Import preview</div>
+      <div id="importPreviewCard" class="card import-preview mt-one" hidden>
+        <div class="section-title section-title-flush">Import preview</div>
         <div id="importPreviewSummary" class="import-preview-summary"></div>
         <div id="importPreviewDetails" class="import-preview-details"></div>
         <div class="import-preview-footer">
-          <button class="btn" id="applyImportBtn" onclick="applyImportChanges()" disabled>Apply changes</button>
-          <button class="btn outline" id="downloadImportErrorsBtn" onclick="downloadImportErrors()" style="display:none">Download error report</button>
+          <button type="button" class="btn" id="applyImportBtn" onclick="applyImportChanges()" disabled>Apply changes</button>
+          <button type="button" class="btn outline is-hidden" id="downloadImportErrorsBtn" onclick="downloadImportErrors()">Download error report</button>
         </div>
       </div>
     </section>
@@ -427,9 +523,45 @@
     const historyModalCloseBtn = q('historyModalClose');
     const historyModalPrevBtn = q('historyModalPrev');
     const historyModalNextBtn = q('historyModalNext');
+    const elderOverlay = q('elderOverlay');
+    const elderModalTitle = q('elderModalTitle');
+    const elderModalCloseBtn = q('elderModalClose');
+    const elderForm = q('elderForm');
+    const elderPreferredInput = q('elderPreferredName');
+    const elderLastInput = q('elderLastName');
+    const elderPhoneInput = q('elderPhone');
+    const elderEmailInput = q('elderEmail');
+    const elderAddressInput = q('elderAddress');
+    const elderDoNotTextInput = q('elderDoNotText');
+    const elderFormError = q('elderFormError');
+    const elderAdvancedActions = q('elderAdvancedActions');
+    const elderAdvancedMeta = q('elderAdvancedMeta');
+    const elderResetVisitBtn = q('elderResetVisitBtn');
+    const elderRemoveAskBtn = q('elderRemoveAskBtn');
+    const elderCancelBtn = q('elderCancelBtn');
+    const elderSaveBtn = q('elderSaveBtn');
     let confirmResolver = null;
     let confirmActive = false;
     let confirmLastFocus = null;
+    const elderModalState = { mode: 'add', elderId: null };
+    let elderModalLastFocus = null;
+
+    if (confirmOverlay) confirmOverlay.setAttribute('aria-hidden', 'true');
+    if (historyOverlay) historyOverlay.setAttribute('aria-hidden', 'true');
+    if (elderOverlay) elderOverlay.setAttribute('aria-hidden', 'true');
+
+    const scheduleOverlayHide = (overlay) => {
+      if (!overlay) return;
+      const hideIfClosed = () => {
+        if (!overlay.classList.contains('open')) {
+          overlay.hidden = true;
+        }
+      };
+      overlay.addEventListener('transitionend', (event) => {
+        if (event.target === overlay) hideIfClosed();
+      }, { once: true });
+      window.setTimeout(hideIfClosed, 250);
+    };
 
     const hideToastElement = (toast) => {
       if (!toast) return;
@@ -473,6 +605,7 @@
       confirmActive = false;
       confirmOverlay.classList.remove('open');
       confirmOverlay.setAttribute('aria-hidden', 'true');
+      scheduleOverlayHide(confirmOverlay);
       const resolver = confirmResolver;
       confirmResolver = null;
       const focusTarget = confirmLastFocus;
@@ -497,8 +630,9 @@
         confirmCancelBtn.textContent = cancelText;
         confirmOkBtn.classList.remove('danger');
         if (variant === 'danger') confirmOkBtn.classList.add('danger');
-        confirmOverlay.classList.add('open');
+        confirmOverlay.hidden = false;
         confirmOverlay.setAttribute('aria-hidden', 'false');
+        confirmOverlay.classList.add('open');
         requestAnimationFrame(() => confirmOkBtn.focus());
       });
     };
@@ -537,7 +671,7 @@
     const clearImportPreview = () => {
       importPreviewData = null;
       if (importPreviewCard) {
-        importPreviewCard.style.display = 'none';
+        importPreviewCard.hidden = true;
         importPreviewCard.setAttribute('aria-hidden', 'true');
       }
       if (importPreviewSummaryEl) importPreviewSummaryEl.innerHTML = '';
@@ -548,7 +682,7 @@
         applyImportBtn.textContent = 'Apply changes';
       }
       if (downloadImportErrorsBtn) {
-        downloadImportErrorsBtn.style.display = 'none';
+        downloadImportErrorsBtn.classList.add('is-hidden');
         downloadImportErrorsBtn.setAttribute('aria-hidden', 'true');
       }
     };
@@ -567,6 +701,246 @@
         showToast(text, { variant: 'error' });
       }
     };
+    const elderInputs = [elderPreferredInput, elderLastInput, elderPhoneInput, elderEmailInput, elderAddressInput];
+    const setElderFormError = (message) => {
+      if (!elderFormError) return;
+      const text = message || '';
+      elderFormError.textContent = text;
+      if (text) {
+        elderFormError.classList.add('show');
+        elderFormError.setAttribute('aria-hidden', 'false');
+        elderFormError.setAttribute('role', 'alert');
+      } else {
+        elderFormError.classList.remove('show');
+        elderFormError.setAttribute('aria-hidden', 'true');
+        elderFormError.removeAttribute('role');
+      }
+    };
+    const resetElderFieldValidity = () => {
+      elderInputs.forEach((input) => {
+        if (input) input.removeAttribute('aria-invalid');
+      });
+    };
+    const configureElderAdvancedSection = (elder, isExisting) => {
+      if (!elderAdvancedActions) return;
+      elderAdvancedActions.hidden = !isExisting;
+      if (!isExisting) {
+        if (elderAdvancedMeta) elderAdvancedMeta.textContent = '';
+        if (elderResetVisitBtn) {
+          elderResetVisitBtn.disabled = true;
+          elderResetVisitBtn.setAttribute('aria-disabled', 'true');
+        }
+        if (elderRemoveAskBtn) {
+          elderRemoveAskBtn.disabled = true;
+          elderRemoveAskBtn.setAttribute('aria-disabled', 'true');
+        }
+        return;
+      }
+      const lastVisitedLabel = `Last visited: ${elder?.lastVisited ? fmtDate(elder.lastVisited) : '—'}`;
+      const attemptsCount = elder?.attemptsSinceLastVisit ?? 0;
+      const attemptsLabel = `Attempts: ${attemptsCount}`;
+      const tx = texts6mInfo(elder || {});
+      const lastTextLabel = tx.lastDateMs ? `Last text: ${new Date(tx.lastDateMs).toLocaleDateString()}` : 'Last text: —';
+      const txCountLabel = `Texts (6m): ${tx.count || 0}`;
+      if (elderAdvancedMeta) {
+        elderAdvancedMeta.textContent = `${lastVisitedLabel} • ${attemptsLabel} • ${lastTextLabel} • ${txCountLabel}`;
+      }
+      if (elderResetVisitBtn) {
+        const canReset = !!(elder?.lastVisited);
+        elderResetVisitBtn.disabled = !canReset;
+        elderResetVisitBtn.setAttribute('aria-disabled', canReset ? 'false' : 'true');
+      }
+      if (elderRemoveAskBtn) {
+        const canRemove = ((elder?.attemptsSinceLastVisit ?? 0) > 0)
+          || (Array.isArray(elder?.textHistory) && elder.textHistory.length > 0);
+        elderRemoveAskBtn.disabled = !canRemove;
+        elderRemoveAskBtn.setAttribute('aria-disabled', canRemove ? 'false' : 'true');
+      }
+    };
+    const populateElderForm = (elder) => {
+      if (elderPreferredInput) elderPreferredInput.value = elder?.preferredName ? elder.preferredName : '';
+      if (elderLastInput) elderLastInput.value = elder?.lastName ? elder.lastName : '';
+      if (elderPhoneInput) elderPhoneInput.value = elder?.phone ? formatPhoneDisplay(elder.phone) : '';
+      if (elderEmailInput) elderEmailInput.value = elder?.email ? elder.email : '';
+      if (elderAddressInput) elderAddressInput.value = elder?.address ? elder.address : '';
+      if (elderDoNotTextInput) elderDoNotTextInput.checked = !!elder?.doNotText;
+    };
+    const closeElderModal = () => {
+      if (!elderOverlay) return;
+      elderOverlay.classList.remove('open');
+      elderOverlay.setAttribute('aria-hidden', 'true');
+      scheduleOverlayHide(elderOverlay);
+      resetElderFieldValidity();
+      setElderFormError('');
+      if (elderModalLastFocus && typeof elderModalLastFocus.focus === 'function') {
+        setTimeout(() => elderModalLastFocus.focus(), 0);
+      }
+      elderModalLastFocus = null;
+      elderModalState.mode = 'add';
+      elderModalState.elderId = null;
+    };
+    const openElderModal = (mode = 'add', elderId = null) => {
+      if (!elderOverlay) return;
+      const isExisting = mode === 'edit' || mode === 'adjust';
+      let elder = null;
+      if (isExisting) {
+        elder = elders.get(elderId);
+        if (!elder) {
+          showErrorToast('Unable to load that elder. Please try again.');
+          return;
+        }
+      }
+      elderModalState.mode = mode;
+      elderModalState.elderId = elderId;
+      resetElderFieldValidity();
+      setElderFormError('');
+      populateElderForm(elder);
+      const title = mode === 'add' ? 'Add elder' : (mode === 'adjust' ? 'Adjust elder' : 'Edit elder');
+      if (elderModalTitle) elderModalTitle.textContent = title;
+      if (elderSaveBtn) elderSaveBtn.textContent = mode === 'add' ? 'Add elder' : 'Save changes';
+      configureElderAdvancedSection(elder, isExisting);
+      elderModalLastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      elderOverlay.hidden = false;
+      elderOverlay.setAttribute('aria-hidden', 'false');
+      elderOverlay.classList.add('open');
+      requestAnimationFrame(() => {
+        if (mode === 'adjust' && elderAdvancedActions) {
+          elderAdvancedActions.scrollIntoView({ block: 'nearest' });
+        }
+        if (elderPreferredInput) elderPreferredInput.focus();
+      });
+    };
+    const refreshElderModal = () => {
+      if (!elderOverlay?.classList.contains('open')) return;
+      const { mode, elderId } = elderModalState;
+      if (!elderId || (mode !== 'edit' && mode !== 'adjust')) return;
+      const elder = elders.get(elderId);
+      if (!elder) return;
+      configureElderAdvancedSection(elder, true);
+    };
+    const markFieldInvalid = (input, message) => {
+      setElderFormError(message);
+      if (input) {
+        input.setAttribute('aria-invalid', 'true');
+        input.focus();
+      }
+    };
+    const handleElderFormSubmit = runAction(async (event) => {
+      event?.preventDefault?.();
+      resetElderFieldValidity();
+      setElderFormError('');
+      const mode = elderModalState.mode;
+      const preferredName = trimValue(elderPreferredInput?.value || '');
+      if (!preferredName) {
+        markFieldInvalid(elderPreferredInput, 'Preferred name is required.');
+        return;
+      }
+      const lastName = trimValue(elderLastInput?.value || '');
+      if (!lastName) {
+        markFieldInvalid(elderLastInput, 'Last name is required.');
+        return;
+      }
+      const phoneRaw = trimValue(elderPhoneInput?.value || '');
+      const phoneDigits = cleanPhone(phoneRaw);
+      if (phoneDigits && phoneDigits.length !== 10) {
+        markFieldInvalid(elderPhoneInput, 'Phone number must include 10 digits.');
+        return;
+      }
+      const email = trimValue(elderEmailInput?.value || '');
+      const address = trimValue(elderAddressInput?.value || '');
+      const doNotText = !!elderDoNotTextInput?.checked;
+      const payload = {
+        preferredName,
+        lastName,
+        phone: phoneDigits || '',
+        email,
+        address,
+        doNotText
+      };
+      if (mode === 'add') {
+        await addDoc(userCol('elders'), {
+          ...payload,
+          active: true,
+          firstSeen: new Date(),
+          attemptsSinceLastVisit: 0
+        });
+        showSuccessToast('Elder added.');
+      } else {
+        const elderId = elderModalState.elderId;
+        if (!elderId) {
+          showErrorToast('Missing elder reference. Please try again.');
+          return;
+        }
+        const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
+        await updateDoc(ref, payload);
+        showSuccessToast('Elder updated.');
+      }
+      closeElderModal();
+    }, 'Unable to save this elder. Please try again.');
+    const handleResetLastVisit = runAction(async () => {
+      const elderId = elderModalState.elderId;
+      if (!elderId) return;
+      const elder = elders.get(elderId);
+      if (!elder) return;
+      setElderFormError('');
+      const confirmed = await showConfirm('Are you sure you want to reset LAST VISIT for this elder?', {
+        confirmText: 'Reset visit',
+        cancelText: 'Cancel',
+        variant: 'danger'
+      });
+      if (!confirmed) return;
+      const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
+      await updateDoc(ref, {
+        lastVisited: null,
+        lastContacted: serverTimestamp(),
+        attemptsSinceLastVisit: increment(1)
+      });
+      showSuccessToast('Last visit reset.');
+      const nextElder = {
+        ...elder,
+        lastVisited: null,
+        attemptsSinceLastVisit: (elder.attemptsSinceLastVisit || 0) + 1
+      };
+      configureElderAdvancedSection(nextElder, true);
+    }, 'Unable to reset the last visit. Please try again.');
+    const handleRemoveLastAsk = runAction(async () => {
+      const elderId = elderModalState.elderId;
+      if (!elderId) return;
+      const elder = elders.get(elderId);
+      if (!elder) return;
+      setElderFormError('');
+      const confirmed = await showConfirm('Are you sure you want to remove the MOST RECENT ASK?', {
+        confirmText: 'Remove ask',
+        cancelText: 'Cancel',
+        variant: 'danger'
+      });
+      if (!confirmed) return;
+      const hist = Array.isArray(elder.textHistory) ? [...elder.textHistory] : [];
+      if (hist.length) hist.pop();
+      const newAttempts = Math.max(0, (elder.attemptsSinceLastVisit || 0) - 1);
+      const ref = doc(db, 'users', currentUser.uid, 'elders', elderId);
+      await updateDoc(ref, {
+        textHistory: hist,
+        attemptsSinceLastVisit: newAttempts,
+        lastTexted: null
+      });
+      showSuccessToast('Most recent ask removed.');
+      const nextElder = {
+        ...elder,
+        textHistory: hist,
+        attemptsSinceLastVisit: newAttempts,
+        lastTexted: null
+      };
+      configureElderAdvancedSection(nextElder, true);
+    }, 'Unable to remove the most recent ask. Please try again.');
+    elderForm?.addEventListener('submit', handleElderFormSubmit);
+    elderCancelBtn?.addEventListener('click', () => closeElderModal());
+    elderModalCloseBtn?.addEventListener('click', () => closeElderModal());
+    elderOverlay?.addEventListener('click', (event) => {
+      if (event.target === elderOverlay) closeElderModal();
+    });
+    elderResetVisitBtn?.addEventListener('click', handleResetLastVisit);
+    elderRemoveAskBtn?.addEventListener('click', handleRemoveLastAsk);
     const firestoreSafeId = (key)=>{
       const raw = (key||'').toString();
       let clean = raw.normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
@@ -768,18 +1142,13 @@
       importPreviewDetailsEl.innerHTML = sections.join('');
 
       if (importPreviewCard) {
-        importPreviewCard.style.display = 'block';
+        importPreviewCard.hidden = false;
         importPreviewCard.setAttribute('aria-hidden', 'false');
       }
 
       if (downloadImportErrorsBtn) {
-        if (errors.length) {
-          downloadImportErrorsBtn.style.display = 'inline-flex';
-          downloadImportErrorsBtn.setAttribute('aria-hidden', 'false');
-        } else {
-          downloadImportErrorsBtn.style.display = 'none';
-          downloadImportErrorsBtn.setAttribute('aria-hidden', 'true');
-        }
+        downloadImportErrorsBtn.classList.toggle('is-hidden', errors.length === 0);
+        downloadImportErrorsBtn.setAttribute('aria-hidden', errors.length ? 'false' : 'true');
       }
 
       if (applyImportBtn) {
@@ -899,8 +1268,13 @@
 
     function updateAuthUI(user){
       const signedOut = !user;
-      ['email','password','signinBtn','createBtn'].forEach(id => q(id).style.display = signedOut ? 'inline-block' : 'none');
-      q('logoutBtn').style.display = user ? 'inline-block' : 'none';
+      ['email','password','signinBtn','createBtn'].forEach((id) => {
+        const el = q(id);
+        if (!el) return;
+        el.classList.toggle('is-hidden', !signedOut);
+      });
+      const logoutBtnEl = q('logoutBtn');
+      if (logoutBtnEl) logoutBtnEl.classList.toggle('is-hidden', !user);
       q('currentUser').textContent = user ? user.email : '';
       if (user){ q('email').value = ''; q('password').value = ''; }
     }
@@ -1036,7 +1410,16 @@
       historyModalNextBtn?.addEventListener('click', ()=> changeHistoryModalPage(1));
       historyOverlay?.addEventListener('click', (event)=>{ if (event.target === historyOverlay) closeHistoryModal(); });
       document.addEventListener('keydown', (event)=>{
-        if (event.key === 'Escape' && historyModalState.elderId) closeHistoryModal();
+        if (event.key !== 'Escape') return;
+        if (elderOverlay?.classList.contains('open')) {
+          event.preventDefault();
+          closeElderModal();
+          return;
+        }
+        if (historyModalState.elderId) {
+          event.preventDefault();
+          closeHistoryModal();
+        }
       });
     }
 
@@ -1085,7 +1468,11 @@
 
     /* ---------- UI render ---------- */
     window.showView = (name)=>{
-      ['next','elders','log','import'].forEach(v=>q('view-'+v).style.display = (v===name)?'block':'none');
+      ['next','elders','log','import'].forEach(v=>{
+        const section = q('view-' + v);
+        if (!section) return;
+        section.hidden = v !== name;
+      });
       if (name==='log') fillLogSelect();
       updateSortArrows(); updateCounters(); window.scrollTo({top:0, behavior:'smooth'});
     };
@@ -1095,6 +1482,7 @@
       fillLogSelect();
       updateSortArrows();
       updateCounters();
+      refreshElderModal();
       if (historyModalState.elderId) renderHistoryModal();
     }
 
@@ -1122,23 +1510,25 @@
         const askedTxt = tx.lastDateMs ? `Last text: ${new Date(tx.lastDateMs).toLocaleDateString()}${tx.count?` • ${tx.count}×/6m`:''}` : 'No texts yet';
         const displayName = [e.preferredName, e.lastName].filter(Boolean).join(' ').trim();
         const nameHtml = escapeHtml(displayName);
-        const phoneHtml = escapeHtml(e.phone||'');
+        const phoneDigits = cleanPhone(e.phone || '');
+        const phoneDisplay = phoneDigits ? formatPhoneDisplay(phoneDigits) : trimValue(e.phone || '');
+        const phoneHtml = phoneDisplay ? escapeHtml(phoneDisplay) : '—';
         const askedHtml = escapeHtml(askedTxt);
         const diffHtml = escapeHtml(diff);
         const name = (e.preferredName || e.lastName || 'there');
 
         return `
           <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center">
-              <div style="font-weight:700">${nameHtml}</div>
+            <div class="card-row card-row-between">
+              <div class="card-title">${nameHtml}</div>
               <span class="pill ${status}">${diffHtml}</span>
             </div>
-            <div class="muted" style="margin:.25rem 0">${phoneHtml}</div>
+            <div class="muted card-subline">${phoneHtml}</div>
             <div class="subtle">${askedHtml}</div>
-            <div style="display:flex; gap:.5rem; margin-top:.35rem">
-              <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
-              <button class="btn" onclick="quickLogVisit('${e.id}')">Log now</button>
-              <button class="btn outline" onclick="noAnswer('${e.id}')">No answer</button>
+            <div class="card-actions">
+              <button type="button" class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
+              <button type="button" class="btn" onclick="quickLogVisit('${e.id}')">Log now</button>
+              <button type="button" class="btn outline" onclick="noAnswer('${e.id}')">No answer</button>
             </div>
           </div>`;
       }).join('');
@@ -1175,7 +1565,7 @@
               <div class="subtle">Texted ${textDateHtml}</div>
             </div>
             <div>
-              <button class="btn ${canConfirm?'':'outline'}" ${canConfirm?`onclick="confirmVisitThisWed('${e.id}')"`:'disabled'}>
+              <button type="button" class="btn ${canConfirm?'':'outline'}" ${canConfirm?`onclick="confirmVisitThisWed('${e.id}')"`:'disabled'}>
                 ${escapeHtml(buttonLabel)}
               </button>
             </div>
@@ -1216,22 +1606,22 @@
         const nameHtml = escapeHtml(rawName);
         const info = scheduleStatusInfo(s.status);
         const statusBadge = `<span class="${info.className}">${escapeHtml(info.label)}</span>`;
-        const detailHtml = `<div class="subtle" style="display:flex; gap:.35rem; flex-wrap:wrap; align-items:center;">${statusBadge}<span>${escapeHtml(wedLabel)}</span></div>`;
+        const detailHtml = `<div class="subtle status-detail">${statusBadge}<span>${escapeHtml(wedLabel)}</span></div>`;
         const actions = [];
         if (meta.relation !== 'past' && info.key !== 'confirmed' && info.key !== 'visited'){
           const confirmLabel = meta.relation === 'future' ? 'Mark confirmed' : 'Confirm';
-          actions.push(`<button class="btn" onclick="setScheduleStatus('${s.id}','Confirmed')">${confirmLabel}</button>`);
+          actions.push(`<button type="button" class="btn" onclick="setScheduleStatus('${s.id}','Confirmed')">${confirmLabel}</button>`);
         }
         if (meta.relation !== 'future' && info.key !== 'visited'){
-          actions.push(`<button class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>`);
+          actions.push(`<button type="button" class="btn" onclick="markVisitedFromSchedule('${s.id}')">Mark visited</button>`);
         }
         if (meta.relation === 'future'){
-          actions.push(`<button class="btn outline" onclick="shiftScheduleWeek('${s.id}', -1)">Earlier week</button>`);
+          actions.push(`<button type="button" class="btn outline" onclick="shiftScheduleWeek('${s.id}', -1)">Earlier week</button>`);
         } else {
           const moveLabel = meta.relation === 'past' ? 'Reschedule forward' : 'Next week';
-          actions.push(`<button class="btn outline" onclick="shiftScheduleWeek('${s.id}', 1)">${moveLabel}</button>`);
+          actions.push(`<button type="button" class="btn outline" onclick="shiftScheduleWeek('${s.id}', 1)">${moveLabel}</button>`);
         }
-        actions.push(`<button class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>`);
+        actions.push(`<button type="button" class="btn outline" onclick="unschedule('${s.id}')">Unschedule</button>`);
         return `
           <div class="row">
             <div>
@@ -1324,8 +1714,11 @@
         const statusPill = inactive ? `<span class="pill gray">Inactive</span>` : `<span class="pill ok">Active</span>`;
         const archiveLabel = inactive ? 'Unarchive' : 'Archive';
         const archiveLabelHtml = escapeHtml(archiveLabel);
-        const phoneDisplay = escapeHtml(e.phone||'');
-        const telLink = e.phone ? `<a href="tel:+1${cleanPhone(e.phone)}">${phoneDisplay}</a>` : '';
+        const phoneDigits = cleanPhone(e.phone||'');
+        const phoneDisplay = phoneDigits ? formatPhoneDisplay(phoneDigits) : trimValue(e.phone || '');
+        const phoneCell = phoneDigits
+          ? `<a href="tel:+1${phoneDigits}">${escapeHtml(phoneDisplay)}</a>`
+          : (phoneDisplay ? escapeHtml(phoneDisplay) : '—');
 
         const tx = texts6mInfo(e);
         const askedCell = tx.lastDateMs ? `${new Date(tx.lastDateMs).toLocaleDateString()}${tx.count?` • ${tx.count}×/6m`:''}` : '—';
@@ -1345,18 +1738,18 @@
 
         return `<tr class="${inactive?'inactive':''}">
           <td class="namecell" data-label="Name">${nameHtml}</td>
-          <td data-label="Phone">${telLink || ''}</td>
+          <td data-label="Phone">${phoneCell}</td>
           <td data-label="Last visited">${visitedHtml}</td>
           <td data-label="Attempts">${attemptsHtml}</td>
           <td data-label="Asked">${askedHtml}</td>
           <td data-label="Status">${statusPill}</td>
           <td class="actions" data-label="Actions">
-            <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
-            <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
-            <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
-            <button class="btn outline" onclick="adjustMenu('${e.id}')">Adjust…</button>
-            <button class="btn light" onclick="toggleHistoryPreview(&quot;${elderIdHtml}&quot;)" aria-expanded="${expandedAttr}" aria-controls="${previewRowIdHtml}">${historyButtonLabelHtml}</button>
-            <button class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabelHtml}</button>
+            <button type="button" class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
+            <button type="button" class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
+            <button type="button" class="btn outline" onclick="editElder('${e.id}')">Edit</button>
+            <button type="button" class="btn outline" onclick="adjustMenu('${e.id}')">Adjust…</button>
+            <button type="button" class="btn light" onclick="toggleHistoryPreview(&quot;${elderIdHtml}&quot;)" aria-expanded="${expandedAttr}" aria-controls="${previewRowIdHtml}">${historyButtonLabelHtml}</button>
+            <button type="button" class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabelHtml}</button>
           </td>
         </tr>
         <tr id="${previewRowIdHtml}" class="${previewRowClass}" data-elder="${elderIdHtml}">
@@ -1380,8 +1773,9 @@
       historyModalState.page = 0;
       renderHistoryModal();
       if (historyOverlay){
-        historyOverlay.classList.add('open');
+        historyOverlay.hidden = false;
         historyOverlay.setAttribute('aria-hidden', 'false');
+        historyOverlay.classList.add('open');
       }
     };
 
@@ -1389,6 +1783,7 @@
       if (!historyOverlay) return;
       historyOverlay.classList.remove('open');
       historyOverlay.setAttribute('aria-hidden', 'true');
+      scheduleOverlayHide(historyOverlay);
       historyModalState.elderId = null;
     }
 
@@ -1529,32 +1924,9 @@
       });
     }, 'Unable to record the no-answer attempt. Please try again.');
 
-    window.addElderPrompt = runAction(async ()=>{
-      const name = prompt('Preferred name and last name (e.g., John Doe)?');
-      if (!name) return;
-      const phone = prompt('Phone (optional)') || '';
-      const [preferredName, ...rest] = name.split(' ');
-      const lastName = rest.join(' ');
-      await addDoc(userCol('elders'), {
-        preferredName, lastName, phone, active: true, firstSeen: new Date(),
-        attemptsSinceLastVisit: 0, doNotText: false
-      });
-    }, 'Unable to add that elder. Please try again.');
-
-    window.editElder = runAction(async (id)=>{
-      const e = elders.get(id); if (!e) return;
-      const name = prompt('Edit name', `${e.preferredName||''} ${e.lastName||''}`) || '';
-      const phone = prompt('Edit phone', e.phone||'') || '';
-      const doNotText = await showConfirm('Mark as Do Not Text?', {
-        confirmText: 'Yes',
-        cancelText: 'No'
-      });
-      const [preferredName, ...rest] = name.split(' ');
-      const lastName = rest.join(' ');
-      const ref = doc(db, 'users', currentUser.uid, 'elders', id);
-      await updateDoc(ref, { preferredName, lastName, phone, doNotText });
-    }, 'Unable to update that elder. Please try again.');
-
+    window.openElderModal = openElderModal;
+    window.addElderPrompt = ()=> openElderModal('add');
+    window.editElder = (id)=> openElderModal('edit', id);
     window.toggleArchive = runAction(async (id, isInactive)=>{
       const ref = doc(db, 'users', currentUser.uid, 'elders', id);
       if (isInactive) {
@@ -1570,50 +1942,7 @@
       }
     }, 'Unable to change the archive state. Please try again.');
 
-    // Adjust menu: reset visit or remove last ask (with double-check)
-    window.adjustMenu = runAction(async (id)=>{
-      const e = elders.get(id); if (!e) return;
-      const choice = prompt(
-        'Type 1 or 2 (or Cancel):\n' +
-        '1) Reset last visit (treat as not visited)\n' +
-        '2) Remove last ask (decrement attempts & remove latest text log)\n' +
-        'Cancel) anything else'
-      );
-      if (choice === '1'){
-        const confirmed = await showConfirm('Are you sure you want to reset LAST VISIT for this elder?', {
-          confirmText: 'Reset visit',
-          cancelText: 'Cancel',
-          variant: 'danger'
-        });
-        if (!confirmed) return;
-        const ref = doc(db, 'users', currentUser.uid, 'elders', id);
-        await updateDoc(ref, {
-          lastVisited: null,
-          lastContacted: serverTimestamp(),
-          attemptsSinceLastVisit: increment(1) // bump—still need to ask again
-        });
-        showSuccessToast('Last visit reset.');
-      } else if (choice === '2'){
-        const confirmed = await showConfirm('Are you sure you want to remove the MOST RECENT ASK?', {
-          confirmText: 'Remove ask',
-          cancelText: 'Cancel',
-          variant: 'danger'
-        });
-        if (!confirmed) return;
-        const hist = Array.isArray(e.textHistory) ? [...e.textHistory] : [];
-        if (hist.length) hist.pop();
-        const newAttempts = Math.max(0, (e.attemptsSinceLastVisit||0)-1);
-        const ref = doc(db, 'users', currentUser.uid, 'elders', id);
-        await updateDoc(ref, {
-          textHistory: hist,
-          attemptsSinceLastVisit: newAttempts,
-          lastTexted: null // UI will compute from history anyway
-        });
-        showSuccessToast('Most recent ask removed.');
-      } else {
-        // no-op
-      }
-    }, 'Unable to adjust that record. Please try again.');
+    window.adjustMenu = (id)=> openElderModal('adjust', id);
 
     /* ---------- Keys (no householdId) ---------- */
     const keyFromDoc = (e) => [ cleanPhone(e.phone||''), norm(e.email||''), norm((e.preferredName||'')+'|'+(e.lastName||'')) ].join('|');
