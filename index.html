@@ -73,6 +73,10 @@
       #view-elders tbody td.actions .btn { flex:1 1 calc(50% - .3rem); min-width:7rem; }
       #view-elders tbody td.actions .btn.danger { flex-basis:100%; }
       #currentUser { max-width:60vw; }
+      .visit-row { display:none !important; }
+      .visit-row.open { display:block !important; }
+      .visit-row.open td { display:block; padding:0; }
+      .visit-panel { margin-top:.5rem; }
     }
 
     /* “two-up” area on Next Up */
@@ -81,6 +85,36 @@
     .list { display:flex; flex-direction:column; gap:.5rem; }
     .row { display:flex; gap:.5rem; align-items:center; justify-content:space-between; }
     .row .who { font-weight:600; }
+    .history-btn.active { background:var(--brand); color:#fff; }
+    .visit-row { display:none; }
+    .visit-row.open { display:table-row; }
+    .visit-row td { border-bottom:none; padding:.75rem 0 0; }
+    .visit-panel { background:#f9fafb; border:1px solid var(--line); border-radius:12px; padding:.75rem; display:flex; flex-direction:column; gap:.5rem; margin-top:.25rem; }
+    .visit-panel-header { display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
+    .visit-panel-title { font-weight:600; }
+    .visit-summary-list { display:flex; flex-direction:column; gap:.5rem; }
+    .visit-summary-item { background:#fff; border:1px solid var(--line); border-radius:10px; padding:.5rem .75rem; display:flex; flex-direction:column; gap:.25rem; }
+    .visit-summary-meta { display:flex; gap:.5rem; align-items:center; font-weight:600; }
+    .visit-summary-date { color:#111827; }
+    .visit-summary-outcome { color:var(--muted); font-weight:500; }
+    .visit-summary-visitors { font-size:.85rem; color:#4b5563; }
+    .visit-summary-notes { font-size:.85rem; color:#374151; }
+    .visit-panel-footer { display:flex; justify-content:flex-end; }
+    .link-button { background:none; border:0; padding:0; color:var(--brand); cursor:pointer; font:inherit; text-decoration:underline; }
+    .link-button:disabled { color:#9ca3af; cursor:default; text-decoration:none; }
+    .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:60; }
+    .modal.open { display:flex; }
+    .modal-backdrop { position:absolute; inset:0; background:rgba(17,24,39,0.45); }
+    .modal-dialog { position:relative; background:#fff; border-radius:16px; padding:1rem; max-width:600px; width:min(92vw,600px); max-height:90vh; display:flex; flex-direction:column; gap:1rem; box-shadow:0 20px 45px rgba(15,23,42,0.15); }
+    .modal-header, .modal-footer { display:flex; justify-content:space-between; align-items:center; gap:.75rem; }
+    .modal-body { overflow:auto; padding-right:.25rem; }
+    .history-list { display:flex; flex-direction:column; gap:.75rem; }
+    .history-item { border-bottom:1px solid var(--line); padding-bottom:.75rem; display:flex; flex-direction:column; gap:.35rem; }
+    .history-item:last-child { border-bottom:none; padding-bottom:0; }
+    .history-item-header { display:flex; justify-content:space-between; align-items:center; gap:.5rem; font-weight:600; }
+    .history-item-outcome { color:#374151; font-weight:500; }
+    .history-item-visitors { font-size:.9rem; color:#4b5563; }
+    .history-item-notes { font-size:.9rem; color:#111827; }
   </style>
 </head>
 <body>
@@ -145,6 +179,12 @@
           <input type="checkbox" id="hideInactive" checked>
           <span>Hide inactive</span>
         </label>
+        <select id="visitRangeSelect" class="input" title="Visit history range">
+          <option value="3">Last 3 months</option>
+          <option value="6" selected>Last 6 months</option>
+          <option value="12">Last 12 months</option>
+          <option value="all">All time</option>
+        </select>
         <div class="grow"></div>
         <span id="eldersCount" class="muted"></span>
       </div>
@@ -201,6 +241,27 @@
     </section>
   </main>
 
+  <div id="historyModal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="closeHistoryModal()"></div>
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="historyModalTitle">
+      <div class="modal-header">
+        <div>
+          <div id="historyModalTitle" class="section-title" style="margin:0">Visit history</div>
+          <div id="historyModalSubtitle" class="muted"></div>
+        </div>
+        <button class="btn outline" type="button" onclick="closeHistoryModal()">Close</button>
+      </div>
+      <div class="modal-body">
+        <div id="historyModalList" class="history-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn outline" type="button" id="historyPrevBtn" onclick="changeHistoryPage(-1)">Previous</button>
+        <div id="historyModalPage" class="muted"></div>
+        <button class="btn outline" type="button" id="historyNextBtn" onclick="changeHistoryPage(1)">Next</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script type="module">
@@ -238,6 +299,10 @@
     const elders = new Map();
     const visits = [];
     const schedules = []; // users/{uid}/schedule
+    const openVisitPanels = new Set();
+    let visitFilterMonths = 6;
+    const historyModalState = { elderId:null, page:0 };
+    const HISTORY_PAGE_SIZE = 10;
 
     const q = id => document.getElementById(id);
     const cleanPhone = s => (s||'').replace(/\D/g,'');
@@ -281,6 +346,40 @@
     const nowMs = ()=> Date.now();
     const daysBetween = (ms)=> Math.floor((nowMs()-ms)/86400000);
     const monthsAgo = (n)=>{ const d=new Date(); d.setMonth(d.getMonth()-n); d.setHours(0,0,0,0); return d; };
+    const visitDateMs = (visit)=>{
+      if (!visit) return 0;
+      if (visit.visitDate){
+        const parsed = Date.parse(visit.visitDate);
+        if (!Number.isNaN(parsed)) return parsed;
+      }
+      if (visit.createdAt){
+        if (typeof visit.createdAt.toDate === 'function'){
+          const d = visit.createdAt.toDate();
+          if (d && !Number.isNaN(d.getTime())) return d.getTime();
+        } else {
+          const parsed = Date.parse(visit.createdAt);
+          if (!Number.isNaN(parsed)) return parsed;
+        }
+      }
+      return 0;
+    };
+    const getSortedVisitsForElder = (elderId)=>{
+      return visits
+        .filter(v => v.elderId === elderId)
+        .slice()
+        .sort((a,b)=> visitDateMs(b) - visitDateMs(a));
+    };
+    const visitRangeLabel = (value)=>{
+      if (value === 'all') return 'All visits';
+      const num = parseInt(value, 10);
+      if (!num || Number.isNaN(num)) return 'Recent visits';
+      return `Last ${num} month${num === 1 ? '' : 's'}`;
+    };
+    const setVisitFilter = (value)=>{
+      if (value === 'all'){ visitFilterMonths = 'all'; return; }
+      const num = parseInt(value, 10);
+      visitFilterMonths = (!Number.isNaN(num) && num > 0) ? num : 6;
+    };
 
     function getMonday(d=new Date()){
       const x = new Date(d); const day = x.getDay(); // 0=Sun
@@ -406,6 +505,14 @@
         sortDir = (sortBy==='visited' || sortBy==='attempts') ? 'desc' : 'asc';
         renderElders();
       });
+      const visitRangeSelect = q('visitRangeSelect');
+      if (visitRangeSelect){
+        visitRangeSelect.value = String(visitFilterMonths);
+        visitRangeSelect.addEventListener('change', (e)=>{
+          setVisitFilter(e.target.value);
+          renderElders();
+        });
+      }
     };
 
     /* ---------- Queue settings (rolling 12m + texting cooldown) ---------- */
@@ -457,7 +564,7 @@
       if (name==='log') fillLogSelect();
       updateSortArrows(); updateCounters(); window.scrollTo({top:0, behavior:'smooth'});
     };
-    function renderAll(){ renderNext(); renderElders(); fillLogSelect(); updateSortArrows(); updateCounters(); }
+    function renderAll(){ renderNext(); renderElders(); fillLogSelect(); updateSortArrows(); updateCounters(); if (historyModalState.elderId) renderHistoryModal(); }
 
     // --- Next Up (cards) + “recent texts” + “this week” ---
     function renderNext(){
@@ -577,6 +684,8 @@
       const tb = q('eldersTbody');
       const tokens = norm(q('searchElders').value).split(/\s+/).filter(Boolean);
       const hideInactive = q('hideInactive').checked;
+      const visitRangeSelect = q('visitRangeSelect');
+      if (visitRangeSelect) visitRangeSelect.value = String(visitFilterMonths);
 
       let arr = Array.from(elders.values())
         .filter(e => (!hideInactive || e.active!==false))
@@ -591,6 +700,12 @@
       const cmpAttempts = (a,b)=> (lastAskedMs(a) - lastAskedMs(b)) * (sortDir==='asc'?1:-1); // we force desc by default
       const cmps = { name:cmpName, phone:cmpPhone, visited:cmpVisited, attempts:cmpAttempts };
       arr.sort(cmps[sortBy] || cmpName);
+
+      const filterCutoffMs = visitFilterMonths === 'all' ? null : monthsAgo(visitFilterMonths).getTime();
+      const rangeLabelHtml = escapeHtml(visitRangeLabel(visitFilterMonths));
+
+      const visibleIds = new Set(arr.map(e=>e.id));
+      Array.from(openVisitPanels).forEach(id=>{ if (!visibleIds.has(id)) openVisitPanels.delete(id); });
 
       tb.innerHTML = arr.map(e=>{
         const inactive = e.active===false;
@@ -607,6 +722,52 @@
         const visitedHtml = escapeHtml(fmtDate(e.lastVisited));
         const attemptsHtml = escapeHtml(String(e.attemptsSinceLastVisit||0));
 
+        const allVisits = getSortedVisitsForElder(e.id);
+        const filteredVisits = filterCutoffMs ? allVisits.filter(v => visitDateMs(v) >= filterCutoffMs) : allVisits;
+        const summaryVisits = filteredVisits.slice(0,3);
+        const hasHistory = allVisits.length > 0;
+        const isOpen = openVisitPanels.has(e.id);
+        const historyBtnClass = `btn outline history-btn${isOpen?' active':''}`;
+        const historyLabel = isOpen ? 'Hide history' : 'History';
+        const historyBtnHtml = `<button class="${historyBtnClass}" onclick="toggleVisitPanel('${e.id}')">${escapeHtml(historyLabel)}</button>`;
+
+        const summaryItems = summaryVisits.map(v=>{
+          const dateHtml = escapeHtml(fmtDate(v.visitDate || v.createdAt));
+          const outcomeHtml = escapeHtml(v.outcome || '—');
+          const visitorsHtml = escapeHtml(v.visitors || '—');
+          const rawNotes = (v.notes || '').trim();
+          const truncatedNotes = rawNotes.length > 160 ? `${rawNotes.slice(0,157)}…` : rawNotes;
+          const notesHtml = truncatedNotes ? escapeHtml(truncatedNotes) : '<span class="muted">No notes</span>';
+          return `<div class="visit-summary-item">
+              <div class="visit-summary-meta"><span class="visit-summary-date">${dateHtml}</span><span class="visit-summary-outcome">${outcomeHtml}</span></div>
+              <div class="visit-summary-visitors"><span class="muted">Visitors:</span> ${visitorsHtml}</div>
+              <div class="visit-summary-notes">${notesHtml}</div>
+            </div>`;
+        }).join('');
+        let summaryBody = '';
+        if (summaryVisits.length){
+          summaryBody = `<div class="visit-summary-list">${summaryItems}</div>`;
+        } else if (hasHistory){
+          summaryBody = '<div class="muted">No visits in this range.</div>';
+        } else {
+          summaryBody = '<div class="muted">No visits logged yet.</div>';
+        }
+        const showFullLink = hasHistory;
+        const viewFullHtml = showFullLink ? `<div class="visit-panel-footer"><button type="button" class="link-button" onclick="openHistoryModal('${e.id}')">View full history (${allVisits.length})</button></div>` : '';
+
+        const panelHtml = `<tr class="visit-row ${isOpen?'open':''}">
+          <td colspan="7" data-label="Visit history">
+            <div class="visit-panel">
+              <div class="visit-panel-header">
+                <div class="visit-panel-title">Recent visits</div>
+                <div class="muted">${rangeLabelHtml}</div>
+              </div>
+              ${summaryBody}
+              ${viewFullHtml}
+            </div>
+          </td>
+        </tr>`;
+
         return `<tr class="${inactive?'inactive':''}">
           <td class="namecell" data-label="Name">${nameHtml}</td>
           <td data-label="Phone">${telLink || ''}</td>
@@ -617,15 +778,110 @@
           <td class="actions" data-label="Actions">
             <button class="btn outline" onclick="textAndTrack('${e.id}')">Text</button>
             <button class="btn" onclick="quickLogVisit('${e.id}')">Log</button>
+            ${historyBtnHtml}
             <button class="btn outline" onclick="editElder('${e.id}')">Edit</button>
             <button class="btn outline" onclick="adjustMenu('${e.id}')">Adjust…</button>
             <button class="btn ${inactive?'outline danger':'danger'}" onclick="toggleArchive('${e.id}', ${inactive})">${archiveLabelHtml}</button>
           </td>
-        </tr>`;
+        </tr>${panelHtml}`;
       }).join('');
 
       updateSortArrows(); updateCounters();
     }
+
+    function renderHistoryModal(){
+      const modal = q('historyModal');
+      if (!modal) return;
+      const subtitleEl = q('historyModalSubtitle');
+      const listEl = q('historyModalList');
+      const pageEl = q('historyModalPage');
+      const prevBtn = q('historyPrevBtn');
+      const nextBtn = q('historyNextBtn');
+      const { elderId } = historyModalState;
+
+      if (!elderId){
+        if (subtitleEl) subtitleEl.textContent = '';
+        if (listEl) listEl.innerHTML = '';
+        if (pageEl) pageEl.textContent = '';
+        if (prevBtn) prevBtn.disabled = true;
+        if (nextBtn) nextBtn.disabled = true;
+        return;
+      }
+
+      const elder = elders.get(elderId);
+      const displayName = elder ? [elder.preferredName, elder.lastName].filter(Boolean).join(' ').trim() : '';
+      if (subtitleEl) subtitleEl.textContent = displayName || '—';
+
+      const allVisits = getSortedVisitsForElder(elderId);
+      const totalVisits = allVisits.length;
+      const totalPages = totalVisits ? Math.ceil(totalVisits / HISTORY_PAGE_SIZE) : 0;
+      if (totalPages === 0){
+        historyModalState.page = 0;
+      } else {
+        if (historyModalState.page >= totalPages) historyModalState.page = totalPages - 1;
+        if (historyModalState.page < 0) historyModalState.page = 0;
+      }
+      const pageIndex = historyModalState.page;
+
+      if (pageEl) pageEl.textContent = totalPages ? `Page ${pageIndex+1} of ${totalPages} (${totalVisits} total)` : 'No visits yet';
+      if (prevBtn) prevBtn.disabled = pageIndex <= 0;
+      if (nextBtn) nextBtn.disabled = !totalPages || pageIndex >= totalPages - 1;
+
+      if (!totalPages){
+        if (listEl) listEl.innerHTML = '<div class="muted">No visits logged yet.</div>';
+        return;
+      }
+
+      const start = pageIndex * HISTORY_PAGE_SIZE;
+      const pageVisits = allVisits.slice(start, start + HISTORY_PAGE_SIZE);
+      if (listEl){
+        listEl.innerHTML = pageVisits.map(v=>{
+          const dateHtml = escapeHtml(fmtDate(v.visitDate || v.createdAt));
+          const outcomeHtml = escapeHtml(v.outcome || '—');
+          const visitorsHtml = escapeHtml(v.visitors || '—');
+          const rawNotes = (v.notes || '').trim();
+          const notesHtml = rawNotes ? escapeHtml(rawNotes).replace(/\n/g,'<br>') : '<span class="muted">No notes</span>';
+          return `<div class="history-item">
+            <div class="history-item-header"><span>${dateHtml}</span><span class="history-item-outcome">${outcomeHtml}</span></div>
+            <div class="history-item-visitors"><span class="muted">Visitors:</span> ${visitorsHtml}</div>
+            <div class="history-item-notes">${notesHtml}</div>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    window.toggleVisitPanel = (elderId)=>{
+      if (openVisitPanels.has(elderId)) openVisitPanels.delete(elderId);
+      else openVisitPanels.add(elderId);
+      renderElders();
+    };
+    window.openHistoryModal = (elderId)=>{
+      historyModalState.elderId = elderId;
+      historyModalState.page = 0;
+      const modal = q('historyModal');
+      if (modal){
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden','false');
+      }
+      document.body.style.overflow = 'hidden';
+      renderHistoryModal();
+    };
+    window.closeHistoryModal = ()=>{
+      const modal = q('historyModal');
+      if (modal){
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden','true');
+      }
+      historyModalState.elderId = null;
+      historyModalState.page = 0;
+      document.body.style.removeProperty('overflow');
+      renderHistoryModal();
+    };
+    window.changeHistoryPage = (delta)=>{
+      if (!historyModalState.elderId) return;
+      historyModalState.page += delta;
+      renderHistoryModal();
+    };
 
     function fillLogSelect(){
       const sel = q('logElderSelect');
@@ -1064,6 +1320,9 @@
     /* ---------- Start ---------- */
     window.showView('next');
     wireSearch();
+    document.addEventListener('keydown', (event)=>{
+      if (event.key === 'Escape' && historyModalState.elderId) closeHistoryModal();
+    });
   </script>
 
   <!-- Firestore Security Rules
